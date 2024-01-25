@@ -68,7 +68,7 @@ static void CalculateTotalOutputSizes(OpKernelContextInternal* op_kernel_context
   int output_count = op_kernel_context->OutputCount();
   for (auto i = 0; i < output_count; i++) {
     const OrtValue* p_output = op_kernel_context->GetOutputMLValue(i);
-    if (p_output != nullptr && p_output->IsTensor() && p_input->IsAllocated()) {
+    if (p_output != nullptr && p_output->IsTensor() && p_output->IsAllocated()) {
       const auto& tensor = p_output->Get<Tensor>();
       size_t tensor_size = tensor.SizeInBytes();
 #if defined(TRACE_EXECUTION)
