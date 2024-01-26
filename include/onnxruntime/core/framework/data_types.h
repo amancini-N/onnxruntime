@@ -234,6 +234,10 @@ class DataTypeImpl {
   static const std::vector<MLDataType>& AllOptionalAndTensorAndSequenceTensorTypesIRv4();
   static const std::vector<MLDataType>& AllOptionalAndTensorAndSequenceTensorTypesIRv9();
 
+  static const std::vector<MLDataType>& AllFixedSizeOptionalAndTensorAndSequenceTensorTypes();  // up to IR4 (no float 8), deprecated
+  static const std::vector<MLDataType>& AllFixedSizeOptionalAndTensorAndSequenceTensorTypesIRv4();
+  static const std::vector<MLDataType>& AllFixedSizeOptionalAndTensorAndSequenceTensorTypesIRv9();
+
   static const std::vector<MLDataType>& AllFixedSizeTensorAndSequenceTensorTypes();  // up to IR4 (no float 8), deprecated
   static const std::vector<MLDataType>& AllFixedSizeTensorAndSequenceTensorTypesIRv4();
   static const std::vector<MLDataType>& AllFixedSizeTensorAndSequenceTensorTypesIRv9();
@@ -241,6 +245,10 @@ class DataTypeImpl {
   static const std::vector<MLDataType>& AllOptionalTypes();  // up to IR4 (no float 8), deprecated
   static const std::vector<MLDataType>& AllOptionalTypesIRv4();
   static const std::vector<MLDataType>& AllOptionalTypesIRv9();
+
+  static const std::vector<MLDataType>& AllFixedSizeOptionalTypes();  // up to IR4 (no float 8), deprecated
+  static const std::vector<MLDataType>& AllFixedSizeOptionalTypesIRv4();
+  static const std::vector<MLDataType>& AllFixedSizeOptionalTypesIRv9();
 
   static const std::vector<MLDataType>& AllTensorAndSequenceTensorAndOptionalTypes();  // up to IR4 (no float 8), deprecated
   static const std::vector<MLDataType>& AllTensorAndSequenceTensorAndOptionalTypesIRv4();

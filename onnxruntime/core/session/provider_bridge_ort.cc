@@ -723,6 +723,10 @@ struct ProviderHostImpl : ProviderHost {
   const std::vector<MLDataType>& DataTypeImpl__AllOptionalAndTensorAndSequenceTensorTypesIRv4() override { return DataTypeImpl::AllOptionalAndTensorAndSequenceTensorTypesIRv4(); }
   const std::vector<MLDataType>& DataTypeImpl__AllOptionalAndTensorAndSequenceTensorTypesIRv9() override { return DataTypeImpl::AllOptionalAndTensorAndSequenceTensorTypesIRv9(); }
 
+  const std::vector<MLDataType>& DataTypeImpl__AllFixedSizeOptionalAndTensorAndSequenceTensorTypes() override { return DataTypeImpl::AllFixedSizeOptionalAndTensorAndSequenceTensorTypes(); }
+  const std::vector<MLDataType>& DataTypeImpl__AllFixedSizeOptionalAndTensorAndSequenceTensorTypesIRv4() override { return DataTypeImpl::AllFixedSizeOptionalAndTensorAndSequenceTensorTypesIRv4(); }
+  const std::vector<MLDataType>& DataTypeImpl__AllFixedSizeOptionalAndTensorAndSequenceTensorTypesIRv9() override { return DataTypeImpl::AllFixedSizeOptionalAndTensorAndSequenceTensorTypesIRv9(); }
+
   const std::vector<MLDataType>& DataTypeImpl__AllFixedSizeTensorAndSequenceTensorTypes() override { return DataTypeImpl::AllFixedSizeTensorAndSequenceTensorTypes(); }
   const std::vector<MLDataType>& DataTypeImpl__AllFixedSizeTensorAndSequenceTensorTypesIRv4() override { return DataTypeImpl::AllFixedSizeTensorAndSequenceTensorTypesIRv4(); }
   const std::vector<MLDataType>& DataTypeImpl__AllFixedSizeTensorAndSequenceTensorTypesIRv9() override { return DataTypeImpl::AllFixedSizeTensorAndSequenceTensorTypesIRv9(); }
@@ -906,6 +910,10 @@ struct ProviderHostImpl : ProviderHost {
   Tensor* OpKernelContext__Output(OpKernelContext* p, int index, const TensorShape& shape) override { return p->Output(index, shape); }
 #if !defined(DISABLE_SPARSE_TENSORS)
   SparseTensor* OpKernelContext__OutputSparse(OpKernelContext* p, int index, const TensorShape& shape) override { return p->OutputSparse(index, shape); }
+#endif
+#if !defined(DISABLE_OPTIONAL_TYPE)
+  void OpKernelContext__EmptyOptionalTensorOutput(OpKernelContext* p, int index) override { return p->OutputOptionalWithoutData<Tensor>(index); }
+  void OpKernelContext__EmptyOptionalTensorSeqOutput(OpKernelContext* p, int index) override { return p->OutputOptionalWithoutData<TensorSeq>(index); }
 #endif
   Tensor& OpKernelContext__RequiredOutput(OpKernelContext* p, int index, const TensorShape& shape) override { return p->RequiredOutput(index, shape); }
   int OpKernelContext__InputCount(const OpKernelContext* p) override { return p->InputCount(); }

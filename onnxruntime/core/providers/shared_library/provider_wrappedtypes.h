@@ -577,6 +577,10 @@ class DataTypeImpl final {
   static const std::vector<MLDataType>& AllOptionalAndTensorAndSequenceTensorTypesIRv4() { return g_host->DataTypeImpl__AllOptionalAndTensorAndSequenceTensorTypesIRv4(); }
   static const std::vector<MLDataType>& AllOptionalAndTensorAndSequenceTensorTypesIRv9() { return g_host->DataTypeImpl__AllOptionalAndTensorAndSequenceTensorTypesIRv9(); }
 
+  static const std::vector<MLDataType>& AllFixedSizeOptionalAndTensorAndSequenceTensorTypes() { return g_host->DataTypeImpl__AllFixedSizeOptionalAndTensorAndSequenceTensorTypes(); }
+  static const std::vector<MLDataType>& AllFixedSizeOptionalAndTensorAndSequenceTensorTypesIRv4() { return g_host->DataTypeImpl__AllFixedSizeOptionalAndTensorAndSequenceTensorTypesIRv4(); }
+  static const std::vector<MLDataType>& AllFixedSizeOptionalAndTensorAndSequenceTensorTypesIRv9() { return g_host->DataTypeImpl__AllFixedSizeOptionalAndTensorAndSequenceTensorTypesIRv9(); }
+
   static const std::vector<MLDataType>& AllFixedSizeTensorAndSequenceTensorTypes() { return g_host->DataTypeImpl__AllFixedSizeTensorAndSequenceTensorTypes(); }
   static const std::vector<MLDataType>& AllFixedSizeTensorAndSequenceTensorTypesIRv4() { return g_host->DataTypeImpl__AllFixedSizeTensorAndSequenceTensorTypesIRv4(); }
   static const std::vector<MLDataType>& AllFixedSizeTensorAndSequenceTensorTypesIRv9() { return g_host->DataTypeImpl__AllFixedSizeTensorAndSequenceTensorTypesIRv9(); }
@@ -813,6 +817,10 @@ struct OpKernelContext final {
   Tensor* Output(int index, const TensorShape& shape) { return g_host->OpKernelContext__Output(this, index, shape); }
 #if !defined(DISABLE_SPARSE_TENSORS)
   SparseTensor* OutputSparse(int index, const TensorShape& shape) { return g_host->OpKernelContext__OutputSparse(this, index, shape); }
+#endif
+#if !defined(DISABLE_OPTIONAL_TYPE)
+  void EmptyOptionalTensorOutput(int index) { return g_host->OpKernelContext__EmptyOptionalTensorOutput(this, index); }
+  void EmptyOptionalTensorSeqOutput(int index) { return g_host->OpKernelContext__EmptyOptionalTensorSeqOutput(this, index); }
 #endif
   int OutputCount() const { return g_host->OpKernelContext__OutputCount(this); }
 

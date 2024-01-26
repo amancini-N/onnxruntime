@@ -615,6 +615,10 @@ struct ProviderHost {
   virtual const std::vector<MLDataType>& DataTypeImpl__AllOptionalAndTensorAndSequenceTensorTypesIRv4() = 0;
   virtual const std::vector<MLDataType>& DataTypeImpl__AllOptionalAndTensorAndSequenceTensorTypesIRv9() = 0;
 
+  virtual const std::vector<MLDataType>& DataTypeImpl__AllFixedSizeOptionalAndTensorAndSequenceTensorTypes() = 0;
+  virtual const std::vector<MLDataType>& DataTypeImpl__AllFixedSizeOptionalAndTensorAndSequenceTensorTypesIRv4() = 0;
+  virtual const std::vector<MLDataType>& DataTypeImpl__AllFixedSizeOptionalAndTensorAndSequenceTensorTypesIRv9() = 0;
+
   virtual const std::vector<MLDataType>& DataTypeImpl__AllFixedSizeTensorAndSequenceTensorTypes() = 0;
   virtual const std::vector<MLDataType>& DataTypeImpl__AllFixedSizeTensorAndSequenceTensorTypesIRv4() = 0;
   virtual const std::vector<MLDataType>& DataTypeImpl__AllFixedSizeTensorAndSequenceTensorTypesIRv9() = 0;
@@ -780,6 +784,10 @@ struct ProviderHost {
   virtual Tensor* OpKernelContext__Output(OpKernelContext* p, int index, const TensorShape& shape) = 0;
 #if !defined(DISABLE_SPARSE_TENSORS)
   virtual SparseTensor* OpKernelContext__OutputSparse(OpKernelContext* p, int index, const TensorShape& shape) = 0;
+#endif
+#if !defined(DISABLE_OPTIONAL_TYPE)
+  virtual void OpKernelContext__EmptyOptionalTensorOutput(OpKernelContext* p, int index) = 0;
+  virtual void OpKernelContext__EmptyOptionalTensorSeqOutput(OpKernelContext* p, int index) = 0;
 #endif
   virtual Tensor& OpKernelContext__RequiredOutput(OpKernelContext* p, int index, const TensorShape& shape) = 0;
   virtual MLDataType OpKernelContext__InputType(const OpKernelContext* p, int index) = 0;
