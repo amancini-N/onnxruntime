@@ -49,11 +49,12 @@ namespace transformers {
 
 Status T5DecoderSubgraph::Validate(const std::vector<const NodeArg*>& subgraph_inputs,
                                    const std::vector<const NodeArg*>& subgraph_outputs) {
-  bool has_hidden_state = subgraph_inputs[2]->Name() == "encoder_hidden_states" ? true : false;
-  SetPastInputIndex(has_hidden_state);
+  bool requires_input_sequence = subgraph_inputs[1]->Name() == "encoder_input_ids";
+  bool has_hidden_state = subgraph_inputs[2 + requires_input_sequence]->Name() == "encoder_hidden_states";
+  SetPastInputIndex(has_hidden_state, requires_input_sequence);
 
-  ORT_RETURN_IF(first_past_input_index_ != 2 && first_past_input_index_ != 3,
-                "kFirstPastInputIndex currently only supports 2 or 3");
+  ORT_RETURN_IF(first_past_input_index_ != 2 && first_past_input_index_ != 3 && first_past_input_index_ != 4,
+                "kFirstPastInputIndex currently only supports 2, 3 or 4");
 
   if (!past_present_share_buffer_) {
     ORT_RETURN_IF(has_decoder_masked_attention_, "decoder_masked_attention shall use with past_present_share_buffer");
@@ -75,13 +76,18 @@ Status T5DecoderSubgraph::Validate(const std::vector<const NodeArg*>& subgraph_i
 
   ORT_RETURN_IF(subgraph_inputs[0]->Name() != "input_ids",
                 "decoder subgraph input 0 shall be named as input_ids, got: ", subgraph_inputs[0]->Name());
-  ORT_RETURN_IF(subgraph_inputs[1]->Name() != "encoder_attention_mask",
+  if (requires_encoder_input_ids_) {
+    ORT_RETURN_IF(subgraph_inputs[1]->Name() != "encoder_input_ids",
+                  "decoder subgraph input 1 shall be named as encoder_input_ids, got: ",
+                  subgraph_inputs[1]->Name());
+  }
+  ORT_RETURN_IF(subgraph_inputs[1 + requires_encoder_input_ids_]->Name() != "encoder_attention_mask",
                 "decoder subgraph input 1 shall be named as encoder_attention_mask, got: ",
-                subgraph_inputs[1]->Name());
-  if (first_past_input_index_ == 3) {
-    ORT_RETURN_IF(subgraph_inputs[2]->Name() != "encoder_hidden_states",
+                subgraph_inputs[1 + requires_encoder_input_ids_]->Name());
+  if (has_hidden_state_) {
+    ORT_RETURN_IF(subgraph_inputs[2 + requires_encoder_input_ids_]->Name() != "encoder_hidden_states",
                   "decoder subgraph input 2 shall be named as encoder_hidden_states, got: ",
-                  subgraph_inputs[2]->Name());
+                  subgraph_inputs[2 + requires_encoder_input_ids_]->Name());
   }
 
   // check subgraph outputs
@@ -108,10 +114,14 @@ Status T5DecoderSubgraph::Validate(const std::vector<const NodeArg*>& subgraph_i
 
   ORT_RETURN_IF(subgraph_inputs[0]->TypeAsProto()->tensor_type().elem_type() != int32_type,
                 "decoder subgraph input 0 (input_ids) shall have int32 type");
-  ORT_RETURN_IF(subgraph_inputs[1]->TypeAsProto()->tensor_type().elem_type() != int32_type,
+  if (requires_encoder_input_ids_) {
+    ORT_RETURN_IF(subgraph_inputs[1]->TypeAsProto()->tensor_type().elem_type() != int32_type,
+                  "decoder subgraph input 1 (encoder_input_ids) shall have int32 type");
+  }
+  ORT_RETURN_IF(subgraph_inputs[1 + requires_encoder_input_ids_]->TypeAsProto()->tensor_type().elem_type() != int32_type,
                 "decoder subgraph input 1 (encoder_attention_mask) shall have int32 type");
 
-  auto float_type = subgraph_inputs[2]->TypeAsProto()->tensor_type().elem_type();
+  auto float_type = subgraph_inputs[2 + requires_encoder_input_ids_]->TypeAsProto()->tensor_type().elem_type();
   ORT_RETURN_IF(float_type != float32_type && float_type != float16_type,
                 "decoder subgraph input 2 (encoder_hidden_states) shall have float or float16 type");
 
@@ -201,6 +211,20 @@ Status T5DecoderSubgraph::CreateInitialFeeds(
   decoder_feeds.reserve(static_cast<size_t>(num_subgraph_inputs) + static_cast<size_t>(num_implicit_inputs));
   decoder_feeds.push_back(input_ids);
 
+  if (requires_encoder_input_ids_) {
+    // The encoder_input_ids is copied from the first input of encoder.
+    OrtValue expanded_decoder_input_ids;
+    ORT_RETURN_IF_ERROR(expand_buffer_int32_func(stream,
+                                                 encoder_feeds[0],
+                                                 num_beam,
+                                                 allocator,
+                                                 expanded_decoder_input_ids,
+                                                 false,
+                                                 0 /*max_sequence_length*/));
+
+    decoder_feeds.push_back(expanded_decoder_input_ids);
+  }
+
   // The encoder_attention_mask is copied from the second input of encoder.
   OrtValue expanded_decoder_attention_masks;
   ORT_RETURN_IF_ERROR(expand_buffer_int32_func(stream,
@@ -220,7 +244,7 @@ Status T5DecoderSubgraph::CreateInitialFeeds(
   // When first_past_input_index_ == 3, the encoder_hidden_states and past states are copied from the second output
   // of encoder.
   // When first_past_input_index_ == 2, the past states are copied from the second output of encoder.
-  for (size_t j = static_cast<size_t>(4) - first_past_input_index_; j < encoder_fetches.size(); j++) {
+  for (size_t j = static_cast<size_t>(4) - first_past_input_index_ + requires_encoder_input_ids_; j < encoder_fetches.size(); j++) {
     if (j == 1) {
       ORT_RETURN_IF(has_hidden_state_ == false, "Invalid hidden_states expension: has_hidden_state_ == false");
       OrtValue expanded_hidden_states;

@@ -53,13 +53,10 @@ class T5DecoderSubgraph : public Subgraph {
   Status Validate(const std::vector<const NodeArg*>& subgraph_inputs,
                   const std::vector<const NodeArg*>& subgraph_outputs) override;
 
-  void SetPastInputIndex(bool has_hidden_state) {
+  void SetPastInputIndex(bool has_hidden_state, bool requires_encoder_input_sequence) {
     has_hidden_state_ = has_hidden_state;
-    if (!has_hidden_state_) {
-      first_past_input_index_ = 2;
-    } else {
-      first_past_input_index_ = 3;
-    }
+    requires_encoder_input_ids_ = requires_encoder_input_sequence;
+    first_past_input_index_ = 2 + has_hidden_state_ + requires_encoder_input_ids_;
   }
 
   int GetFirstPastInputIndex() const {
@@ -74,11 +71,16 @@ class T5DecoderSubgraph : public Subgraph {
     return use_sequence_as_input_ids_;
   }
 
+  inline bool RequiresEncoderInputIds() const {
+    return requires_encoder_input_ids_;
+  }
+
  protected:
   int first_past_input_index_;
   int first_present_output_index_;
   bool has_hidden_state_;
   bool use_sequence_as_input_ids_;
+  bool requires_encoder_input_ids_;
 };
 
 }  // namespace transformers
