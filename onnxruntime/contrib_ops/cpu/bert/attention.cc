@@ -227,6 +227,13 @@ Status Attention<T>::Compute(OpKernelContext* context) const {
   output_shape[2] = static_cast<int64_t>(parameters.v_hidden_size);
   Tensor* output = context->Output(0, output_shape);
 
+  std::vector<int64_t> attn_probs_shape(4);
+  attn_probs_shape[0] = static_cast<int64_t>(batch_size);
+  attn_probs_shape[1] = static_cast<int64_t>(num_heads_);
+  attn_probs_shape[2] = static_cast<int64_t>(sequence_length);
+  attn_probs_shape[3] = static_cast<int64_t>(parameters.total_sequence_length);
+  Tensor* attn_probs = context->Output(2, attn_probs_shape);
+
   constexpr size_t element_size = sizeof(T);
 
   AllocatorPtr allocator;
@@ -335,7 +342,7 @@ Status Attention<T>::Compute(OpKernelContext* context) const {
 
   // Compute the attention score and apply the score to V
   return ApplyAttention(Q, K, V, mask_index, past, nullptr /* past_key */, nullptr /* past_value */,
-                        output, nullptr /* present_key */, nullptr /* present_value */,
+                        output, attn_probs, nullptr /* present_key */, nullptr /* present_value */,
                         batch_size, sequence_length, sequence_length,
                         parameters.head_size, parameters.v_head_size, parameters.v_hidden_size,
                         relative_position_bias, context);

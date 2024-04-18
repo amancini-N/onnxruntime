@@ -27,6 +27,7 @@ class AttentionCPUBase : public AttentionBase {
                         const Tensor* past_key,                // past K input tensor (if not using past state)
                         const Tensor* past_value,              // past V input tensor (if not using past state)
                         Tensor* output,                        // output tensor
+                        Tensor* attn_probs,                    // attention probs output tensor (optional)
                         Tensor* present_key,                   // present K output tensor (if separating present KV)
                         Tensor* present_value,                 // present V output tensor (if separating present KV)
                         int batch_size,                        // batch size (B)
@@ -54,8 +55,15 @@ class AttentionCPUBase : public AttentionBase {
     const int total_sequence_length = past_sequence_length + kv_sequence_length;
 
     // Compute the attention score.
-    size_t bytes = SafeInt<size_t>(batch_size) * num_heads_ * sequence_length * total_sequence_length * sizeof(T);
-    auto attention_probs = allocator->Alloc(bytes);
+    void* attention_probs = nullptr;
+    T* attn_probs_as_pointer = nullptr;
+    if (attn_probs == nullptr) {
+      size_t bytes = SafeInt<size_t>(batch_size) * num_heads_ * sequence_length * total_sequence_length * sizeof(T);
+      attention_probs = allocator->Alloc(bytes);
+      attn_probs_as_pointer = static_cast<T*>(attention_probs);
+    } else {
+      attn_probs_as_pointer = attn_probs->MutableData<T>();
+    }
     BufferUniquePtr scratch_buffer(attention_probs, BufferDeleter(allocator));
 
     bool causal = (is_unidirectional_ && sequence_length > 1);
@@ -84,7 +92,7 @@ class AttentionCPUBase : public AttentionBase {
       relative_position_bias_data = relative_position_bias->Data<T>();
     }
 
-    ComputeAttentionProbs<T>(static_cast<T*>(attention_probs), Q, K,
+    ComputeAttentionProbs<T>(attn_probs_as_pointer, Q, K,
                              mask_index_data, mask_index_dims, static_cast<T*>(mask_data), causal,
                              batch_size, sequence_length, kv_sequence_length, past_sequence_length,
                              qk_head_size == 0 ? v_head_size : qk_head_size, past_data, past_key_data,
@@ -96,7 +104,7 @@ class AttentionCPUBase : public AttentionBase {
     BufferUniquePtr out_tmp_buffer(out_tmp_data, BufferDeleter(std::move(allocator)));
 
     ComputeVxAttentionScore(output->MutableData<T>(), static_cast<T*>(out_tmp_data),
-                            static_cast<T*>(attention_probs), V,
+                            attn_probs_as_pointer, V,
                             batch_size, sequence_length, kv_sequence_length, past_sequence_length,
                             v_head_size, v_hidden_size, past_data, past_value_data,
                             present_data, present_value_data, tp);

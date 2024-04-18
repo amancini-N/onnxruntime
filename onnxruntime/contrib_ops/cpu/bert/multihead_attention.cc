@@ -305,6 +305,13 @@ Status MultiHeadAttention<T>::Compute(OpKernelContext* context) const {
   output_shape[2] = static_cast<int64_t>(parameters.v_hidden_size);
   Tensor* output = context->Output(0, output_shape);
 
+  std::vector<int64_t> attn_probs_shape(4);
+  attn_probs_shape[0] = static_cast<int64_t>(batch_size);
+  attn_probs_shape[1] = static_cast<int64_t>(num_heads_);
+  attn_probs_shape[2] = static_cast<int64_t>(q_sequence_length);
+  attn_probs_shape[3] = static_cast<int64_t>(parameters.total_sequence_length);
+  Tensor* attn_probs = context->Output(3, attn_probs_shape);
+
   constexpr int q_bias_offset = 0;
   const int k_bias_offset = qk_hidden_size;
   const int v_bias_offset = 2 * qk_hidden_size;
@@ -336,7 +343,7 @@ Status MultiHeadAttention<T>::Compute(OpKernelContext* context) const {
     // No bias add needed for K/V, key already of shape BxNxLxH, value already of shape BxNxLxH_v
     return ApplyAttention(Q.GetMutable<Tensor>()->MutableData<T>(), key->Data<T>(), value->Data<T>(),
                           key_padding_mask, nullptr /* past */, nullptr /* past_k */, nullptr /* past_v */,
-                          output, present_k, present_v,
+                          output, attn_probs, present_k, present_v,
                           batch_size, q_sequence_length, kv_sequence_length,
                           qk_head_size, v_head_size, v_hidden_size, extra_add_qk, context);
   }
@@ -350,7 +357,7 @@ Status MultiHeadAttention<T>::Compute(OpKernelContext* context) const {
 
   // Compute the attention score and apply the score to V
   return ApplyAttention(Q.GetMutable<Tensor>()->MutableData<T>(), K.GetMutable<Tensor>()->MutableData<T>(), V.GetMutable<Tensor>()->MutableData<T>(),
-                        key_padding_mask, nullptr /* past */, past_key, past_value, output, present_k, present_v,
+                        key_padding_mask, nullptr /* past */, past_key, past_value, output, attn_probs, present_k, present_v,
                         batch_size, q_sequence_length, kv_sequence_length,
                         qk_head_size, v_head_size, v_hidden_size, extra_add_qk, context);
 }

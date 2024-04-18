@@ -393,6 +393,11 @@ ONNX_MS_OPERATOR_SET_SCHEMA(
                 "while effective_seq_length = (past_sequence_length + kv_sequence_length).",
                 "T",
                 OpSchema::Optional)
+        .Output(2,
+                "attn_probs",
+                "Attention probabilities with shape (batch_size, num_heads, sequence_length, total_sequence_length)",
+                "T",
+                OpSchema::Optional)
         .TypeConstraint("T",
                         {"tensor(float)", "tensor(float16)"},
                         "Constrain input and output types to float tensors.")
@@ -986,6 +991,11 @@ ONNX_MS_OPERATOR_SET_SCHEMA(
                 "present_value",
                 "present state for cross attention value with shape (batch_size, num_heads, kv_sequence_length, head_size)"
                 "or present state for self attention value with shape (batch_size, num_heads, total_sequence_length, head_size)",
+                "T",
+                OpSchema::Optional)
+        .Output(3,
+                "attn_probs",
+                "Attention probabilities with shape (batch_size, num_heads, sequence_length, total_sequence_length)",
                 "T",
                 OpSchema::Optional)
         .TypeConstraint("T", {"tensor(float)", "tensor(float16)"}, "Constrain input and output to float tensors.")

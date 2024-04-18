@@ -49,11 +49,6 @@ Status AttentionBase::CheckInputs(const TensorShape& input_shape,
   // When a model is pruned (like some attention heads are removed in Q/K/V), input_hidden_size could be larger
   // than hidden dimension of Q, K and V.
 
-  if (past != nullptr && relative_position_bias != nullptr) {
-    // past is used on GPT-2 model with past state, we don't have a case for relative position bias yet
-    return ORT_MAKE_STATUS(ONNXRUNTIME, INVALID_ARGUMENT, "Attention cannot have both past and relative_position_bias");
-  }
-
   const auto& dims = input_shape.GetDims();
   if (dims.size() != 3) {
     return ORT_MAKE_STATUS(ONNXRUNTIME, INVALID_ARGUMENT, "Input 'input' is expected to have 3 dimensions, got ",
