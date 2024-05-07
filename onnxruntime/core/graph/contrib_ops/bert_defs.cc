@@ -1179,6 +1179,10 @@ ONNX_MS_OPERATOR_SET_SCHEMA(
               "Rotate using interleaved pattern. Default value is 0 (False).",
               AttributeProto::INT,
               OPTIONAL_VALUE)
+        .Attr("rope_style",
+              "Accepted values: 0 for GPT-NeoX style, 1 for GPT-J style. Default value is 0 (False).",
+              AttributeProto::INT,
+              OPTIONAL_VALUE)
         .Attr("rotary_embedding_dim",
               "Rotary embedding dimension. Default value is 0.",
               AttributeProto::INT,

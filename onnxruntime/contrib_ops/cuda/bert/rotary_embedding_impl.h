@@ -25,6 +25,7 @@ Status LaunchRotaryEmbeddingKernel(
     const int max_sequence_length,
     const int position_ids_format,
     const bool interleaved,
+    const int rope_style,
     const int max_threads_per_block,
     const bool transposed);
 

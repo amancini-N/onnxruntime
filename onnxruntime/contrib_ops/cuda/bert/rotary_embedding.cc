@@ -37,6 +37,7 @@ RotaryEmbedding<T>::RotaryEmbedding(const OpKernelInfo& info) : CudaKernel(info)
   rotary_embedding_dim = static_cast<int>(info.GetAttrOrDefault<int64_t>("rotary_embedding_dim", 0));
   num_heads = static_cast<int>(info.GetAttrOrDefault<int64_t>("num_heads", 0));
   interleaved = (info.GetAttrOrDefault<int64_t>("interleaved", 0) == 1);
+  rope_style = static_cast<int>(info.GetAttrOrDefault<int64_t>("rope_style", 0));
 }
 
 template <typename T>
@@ -80,6 +81,7 @@ Status RotaryEmbedding<T>::ComputeInternal(OpKernelContext* context) const {
       parameters.max_sequence_length,
       parameters.position_ids_format,
       interleaved,
+      rope_style,
       device_prop.maxThreadsPerBlock,
       parameters.transposed);
 

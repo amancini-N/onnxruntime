@@ -22,6 +22,7 @@ class RotaryEmbedding final : public CudaKernel {
   int num_heads;
   int rotary_embedding_dim;
   bool interleaved;
+  int rope_style;
 };
 
 }  // namespace cuda

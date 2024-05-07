@@ -30,6 +30,7 @@ RotaryEmbedding<T>::RotaryEmbedding(const OpKernelInfo& info) : OpKernel(info) {
   rotary_embedding_dim = static_cast<int>(info.GetAttrOrDefault<int64_t>("rotary_embedding_dim", 0));
   num_heads = static_cast<int>(info.GetAttrOrDefault<int64_t>("num_heads", 0));
   interleaved = (info.GetAttrOrDefault<int64_t>("interleaved", 0) == 1);
+  rope_style = static_cast<int>(info.GetAttrOrDefault<int64_t>("rope_style", 0));
 
   if (rotary_embedding_dim > 0) {
     ORT_ENFORCE(num_heads > 0, "num_heads must be provided if rotary_embedding_dim is specified");
@@ -117,10 +118,14 @@ Status RotaryEmbedding<T>::Compute(OpKernelContext* context) const {
           cache_idx = (i / 2) % half_rotary_emb_dim;
           sign = (i % 2 == 0) ? static_cast<T>(-1) : static_cast<T>(1);
           j = (i % 2 == 0) ? i + 1 : i - 1;  // i - sign
-        } else {
+        } else if (rope_style == 0) {
           cache_idx = i % half_rotary_emb_dim;
           sign = (i < half_rotary_emb_dim) ? static_cast<T>(-1) : static_cast<T>(1);
           j = (i + half_rotary_emb_dim) % rotary_emb_dim;
+        } else {
+          cache_idx = i % half_rotary_emb_dim;
+          sign = (i % 2 == 0) ? static_cast<T>(-1) : static_cast<T>(1);
+          j = (i % 2 == 0) ? i + 1 : i - 1;  // i - sign
         }
         output_data[i] = input_data[i] * cos_data[cache_idx] + sign * input_data[j] * sin_data[cache_idx];
       }

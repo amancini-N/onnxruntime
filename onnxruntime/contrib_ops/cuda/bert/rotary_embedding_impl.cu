@@ -29,6 +29,7 @@ __global__ void RotaryEmbeddingBSNH(T* output,                   // BxSxNxH
                                     const int rotary_embedding_dim,
                                     const int position_ids_format,
                                     const bool interleaved,
+                                    const int rope_style,
                                     const int batch_stride,
                                     const int seq_stride,
                                     const int head_stride) {
@@ -71,10 +72,14 @@ __global__ void RotaryEmbeddingBSNH(T* output,                   // BxSxNxH
     cache_idx = (i / 2) % half_rotary_embedding_dim;
     sign = (i % 2 == 0) ? -1 : 1;
     j = (i % 2 == 0) ? i+1 : i-1;  // i - sign
-  } else {
+  } else if (rope_style == 0) {
     cache_idx = i % half_rotary_embedding_dim;
     sign = (i < half_rotary_embedding_dim) ? -1 : 1;
     j = (i + half_rotary_embedding_dim) % rotary_embedding_dim;
+  } else {
+    cache_idx = i % half_rotary_embedding_dim;
+    sign = (i % 2 == 0) ? -1 : 1;
+    j = (i % 2 == 0) ? i+1 : i-1;  // i - sign
   }
   output_data[i] = input_data[i] * cos_data[cache_idx] + sign * input_data[j] * sin_data[cache_idx];
 }
@@ -96,6 +101,7 @@ Status LaunchRotaryEmbeddingKernel(
     const int max_sequence_length,
     const int position_ids_format,
     const bool interleaved,
+    const int rope_style,
     const int max_threads_per_block,
     const bool transposed) {
   // Note: Current implementation assumes head_size <= max_threads_per_block
@@ -124,7 +130,7 @@ Status LaunchRotaryEmbeddingKernel(
   assert(head_size <= max_threads_per_block);
   RotaryEmbeddingBSNH<<<grid, block, 0, stream>>>(
     output, input, cos_cache, sin_cache, position_ids, sequence_length, num_heads, head_size,
-    rotary_embedding_dim, position_ids_format, interleaved, batch_stride, seq_stride, head_stride
+    rotary_embedding_dim, position_ids_format, interleaved, rope_style, batch_stride, seq_stride, head_stride
   );
 
   return CUDA_CALL(cudaGetLastError());
@@ -145,6 +151,7 @@ template Status LaunchRotaryEmbeddingKernel<float>(
     const int max_sequence_length,
     const int position_ids_format,
     const bool interleaved,
+    const int rope_style,
     const int max_threads_per_block,
     const bool transposed);
 
@@ -163,6 +170,7 @@ template Status LaunchRotaryEmbeddingKernel<half>(
     const int max_sequence_length,
     const int position_ids_format,
     const bool interleaved,
+    const int rope_style,
     const int max_threads_per_block,
     const bool transposed);
 
@@ -181,6 +189,7 @@ template Status LaunchRotaryEmbeddingKernel<BFloat16>(
     const int max_sequence_length,
     const int position_ids_format,
     const bool interleaved,
+    const int rope_style,
     const int max_threads_per_block,
     const bool transposed);
 
