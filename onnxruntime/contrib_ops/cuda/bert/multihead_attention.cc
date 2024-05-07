@@ -119,6 +119,13 @@ Status MultiHeadAttention<T>::ComputeInternal(OpKernelContext* context) const {
   output_shape[2] = static_cast<int64_t>(parameters.v_hidden_size);
   Tensor* output = context->Output(0, output_shape);
 
+  TensorShapeVector attn_probs_shape(4);
+  attn_probs_shape[0] = static_cast<int64_t>(parameters.batch_size);
+  attn_probs_shape[1] = static_cast<int64_t>(parameters.num_heads);
+  attn_probs_shape[2] = static_cast<int64_t>(sequence_length);
+  attn_probs_shape[3] = static_cast<int64_t>(parameters.total_sequence_length);
+  Tensor* attn_probs = context->Output(3, attn_probs_shape);
+
   std::vector<int64_t> present_dims{
       parameters.batch_size, parameters.num_heads, parameters.total_sequence_length, parameters.head_size};
   TensorShape present_shape(present_dims);
@@ -304,6 +311,7 @@ Status MultiHeadAttention<T>::ComputeInternal(OpKernelContext* context) const {
   data.output = reinterpret_cast<CudaT*>(output->MutableData<T>());
   data.present_key = (nullptr == present_key) ? nullptr : reinterpret_cast<CudaT*>(present_key->MutableData<T>());
   data.present_value = (nullptr == present_value) ? nullptr : reinterpret_cast<CudaT*>(present_value->MutableData<T>());
+  data.attn_probs = (nullptr == attn_probs) ? nullptr : reinterpret_cast<CudaT*>(attn_probs->MutableData<T>());
   data.fused_runner = reinterpret_cast<void*>(fused_runner);
   data.fused_cross_attention_kernel = fused_cross_attention_kernel;
   data.use_flash_attention = use_flash_attention;

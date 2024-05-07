@@ -467,12 +467,19 @@ Status UnfusedAttention(
   DUMP_TENSOR_D("K", data.k, batch_size, num_heads, qk_head_size, sequence_length);
   DUMP_TENSOR_D("QK", data.scratch, batch_size, num_heads, sequence_length, total_sequence_length);
 
-  constexpr size_t element_size = sizeof(T);
-  const size_t bytes = GetAttentionScratchSize(element_size, batch_size, num_heads,
-                                               sequence_length, total_sequence_length);
-  T* scratch2 = data.scratch + (bytes / element_size);
+  T* softmax_storage;
+  if (data.attn_probs == nullptr) {
+    constexpr size_t element_size = sizeof(T);
+    const size_t bytes = GetAttentionScratchSize(element_size, batch_size, num_heads,
+                                                 sequence_length, total_sequence_length);
+    T* scratch2 = data.scratch + (bytes / element_size);
+    softmax_storage = scratch2;
+  }
+  else {
+    softmax_storage = data.attn_probs;
+  }
 
-  // Apply softmax and store result R to scratch2: BxNxSxT
+  // Apply softmax and store result R to softmax_storage: BxNxSxT
   if (use_raw_attention_mask) {  // 2d, 3d or 4d attention mask
     const int mask_dimension = static_cast<int>(mask_index_dims.size());
 
@@ -486,7 +493,7 @@ Status UnfusedAttention(
         ComputeSoftmaxWithRawMask<T>(
             ort_stream, total_sequence_length, sequence_length, batch_size, num_heads,
             mask_index, nullptr, data.relative_position_bias, parameters.broadcast_res_pos_bias,
-            data.scratch, scratch2, parameters.is_unidirectional, scale, mask_dimension,
+            data.scratch, softmax_storage, parameters.is_unidirectional, scale, mask_dimension,
             parameters.max_sequence_length, use_persistent_softmax, persistent_softmax_workspace,
             parameters.mask_filter_value));
   } else if (nullptr != mask_index) {  // 1d mask index
@@ -496,15 +503,15 @@ Status UnfusedAttention(
     ORT_RETURN_IF_ERROR(ComputeSoftmaxWithMask1D<T>(
         stream, total_sequence_length, sequence_length, batch_size, num_heads,
         mask_index, mask_start, data.relative_position_bias, parameters.broadcast_res_pos_bias,
-        data.scratch, scratch2, parameters.is_unidirectional));
+        data.scratch, softmax_storage, parameters.is_unidirectional));
   } else {  // no mask
     ORT_RETURN_IF_ERROR(
         ComputeSoftmax<T>(
             stream, total_sequence_length, sequence_length, batch_size, num_heads, data.relative_position_bias,
-            parameters.broadcast_res_pos_bias, data.scratch, scratch2, parameters.is_unidirectional));
+            parameters.broadcast_res_pos_bias, data.scratch, softmax_storage, parameters.is_unidirectional));
   }
 
-  DUMP_TENSOR_D("Softmax", scratch2, batch_size, num_heads, sequence_length, total_sequence_length);
+  DUMP_TENSOR_D("Softmax", softmax_storage, batch_size, num_heads, sequence_length, total_sequence_length);
   DUMP_TENSOR_D("V", data.v, batch_size, num_heads, sequence_length, v_head_size);
 
   // compute R*V (as V*R), and store in temp_output (space used by Q): BxNxSxH_v
@@ -513,7 +520,7 @@ Status UnfusedAttention(
       cublas, CUBLAS_OP_N, CUBLAS_OP_N,
       v_head_size, sequence_length, total_sequence_length,
       &one, data.v, v_head_size, present_size_per_batch_v,
-      scratch2, total_sequence_length, sequence_length * total_sequence_length,
+      softmax_storage, total_sequence_length, sequence_length * total_sequence_length,
       &zero, temp_output, v_head_size, sequence_length * v_head_size, batches, device_prop));
 
   // Temp_output is BxNxSxH_v, transpose to output BxSxNxH_v
