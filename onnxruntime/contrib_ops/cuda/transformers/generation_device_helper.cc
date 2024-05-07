@@ -1256,14 +1256,16 @@ Status UpdateDecoderFeeds(
     CUDA_RETURN_IF_ERROR(cudaMemcpyAsync(input_ids_data, beam_next_tokens.data(), beam_next_tokens.size_bytes(),
                                          cudaMemcpyHostToDevice, cuda_stream));
   } else {
+    // We expect sequences to point directly to device memory
+    int max_length = sequences.GetMaxLength();
+    auto sequences_buffer = sequences.GetCurrentDeviceSequences();
     for (int i = 0; i < batch_beam_size; i++) {
-      gsl::span<const int32_t> sequence = sequences.GetSequence(i);
-      const int32_t* sequence_data = sequence.data();
+      const int32_t* sequence_data = sequences_buffer.data() + i * max_length;
       CUDA_RETURN_IF_ERROR(
           cudaMemcpyAsync(input_ids_data + static_cast<ptrdiff_t>(i) * current_length,
                           sequence_data,
                           current_length * sizeof(int32_t),
-                          cudaMemcpyHostToDevice,
+                          cudaMemcpyDeviceToDevice,
                           cuda_stream));
     }
   }
