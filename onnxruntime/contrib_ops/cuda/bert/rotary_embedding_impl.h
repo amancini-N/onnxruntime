@@ -27,7 +27,7 @@ Status LaunchRotaryEmbeddingKernel(
     const bool interleaved,
     const int rope_style,
     const int max_threads_per_block,
-    const bool transposed);
+    const bool is_input_bnsh_format);
 
 }  // namespace cuda
 }  // namespace contrib

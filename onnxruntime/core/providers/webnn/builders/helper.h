@@ -28,6 +28,7 @@ namespace webnn {
 enum class WebnnDeviceType {
   CPU,
   GPU,
+  NPU,
 };
 
 typedef struct {
@@ -52,6 +53,10 @@ std::string GetShapeString(std::vector<T>& shape) {
   }
   shape_info << "]";
   return shape_info.str();
+}
+
+inline std::string GetTensorName(const ConstPointerContainer<std::vector<NodeArg*>>& input_defs, const size_t index) {
+  return (input_defs.size() > index) ? std::string(input_defs[index]->Name()) : "";
 }
 
 inline std::vector<uint32_t> GetVecUint32FromVecInt64(const std::vector<int64_t>& int64_vec) {
@@ -175,6 +180,7 @@ static const InlinedHashMap<std::string, WebnnOpInfo> op_map = {
     {"Flatten", {"reshape", true}},
     {"Floor", {"floor", true}},
     {"Gather", {"gather", false}},
+    {"Gelu", {"gelu", false}},
     {"Gemm", {"gemm", true}},
     {"GlobalAveragePool", {"averagePool2d", true}},
     {"GlobalMaxPool", {"maxPool2d", true}},
@@ -191,7 +197,7 @@ static const InlinedHashMap<std::string, WebnnOpInfo> op_map = {
     {"LessOrEqual", {"lesserOrEqual", false}},
     {"Log", {"log", false}},
     {"LpPool", {"l2Pool2d", false}},
-    {"MatMul", {"matmul", false}},
+    {"MatMul", {"matmul", true}},
     {"MatMulInteger", {"matmulInteger", false}},
     {"Max", {"max", true}},
     {"MaxPool", {"maxPool2d", true}},

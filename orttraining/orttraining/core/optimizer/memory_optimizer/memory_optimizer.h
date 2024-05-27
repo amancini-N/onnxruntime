@@ -23,7 +23,7 @@ Find recompute subgraphs and enable them according to user configs. The way we c
   a. If yes, add it in the subgraph, and append its input in the queue to scan next;
   b. otherwise, stop collecting and return the subgraph (could be empty).
 3. Pick up the input node from the queue, and do 2 again. The process ends when the queue is empty or 2.b happens.
-4. Clone the recomputable subgraphs with lower node priority (to execute) and insert them back to the original graph.
+4. Clone the recomputable subgraphs and insert them back to the original graph.
 */
 
 class MemoryOptimizer : public GraphTransformer {
@@ -94,6 +94,7 @@ class MemoryOptimizer : public GraphTransformer {
    */
   Status CreateRecomputeGraph(Graph& graph,
                               const InlinedVector<const Node*>& nodes_in_topological_order,
+                              const logging::Logger& logger,
                               Node*& recompute_subgraph_output_node) const;
 
   /**************************************************

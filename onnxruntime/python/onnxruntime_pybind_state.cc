@@ -443,9 +443,9 @@ void RegisterTensorRTPluginsAsCustomOps(PySessionOptions& so, const ProviderOpti
     if (it != options.end()) {
       trt_extra_plugin_lib_paths = it->second;
     }
-    std::vector<OrtCustomOpDomain*> domain_list;
-    tensorrt_provider_info->GetTensorRTCustomOpDomainList(domain_list, trt_extra_plugin_lib_paths);
-    for (auto ptr : domain_list) {
+    std::vector<OrtCustomOpDomain*> custom_op_domains;
+    tensorrt_provider_info->GetTensorRTCustomOpDomainList(custom_op_domains, trt_extra_plugin_lib_paths);
+    for (auto ptr : custom_op_domains) {
       if (!is_already_in_domains(ptr->domain_, so.custom_op_domains_)) {
         so.custom_op_domains_.push_back(ptr);
       } else {
@@ -485,6 +485,15 @@ std::unique_ptr<IExecutionProvider> CreateExecutionProviderInstance(
               params.device_id = std::stoi(option.second);
             } else {
               ORT_THROW("[ERROR] [TensorRT] The value for the key 'device_id' should be a number i.e. '0'.\n");
+            }
+          } else if (option.first == "user_compute_stream") {
+            if (!option.second.empty()) {
+              auto stream = std::stoull(option.second, nullptr, 0);
+              params.user_compute_stream = reinterpret_cast<void*>(stream);
+              params.has_user_compute_stream = true;
+            } else {
+              params.has_user_compute_stream = false;
+              ORT_THROW("[ERROR] [TensorRT] The value for the key 'user_compute_stream' should be a string to define the compute stream for the inference to run on.\n");
             }
           } else if (option.first == "trt_max_partition_iterations") {
             if (!option.second.empty()) {
@@ -919,6 +928,9 @@ std::unique_ptr<IExecutionProvider> CreateExecutionProviderInstance(
         if (option.first == "device_type") {
           OV_provider_options_map[option.first] = option.second;
           continue;
+        } else if (option.first == "precision") {
+          OV_provider_options_map[option.first] = option.second;
+          continue;
         } else if (option.first == "enable_npu_fast_compile") {
           if (!(option.second == "True" || option.second == "true" ||
                 option.second == "False" || option.second == "false")) {
@@ -937,10 +949,24 @@ std::unique_ptr<IExecutionProvider> CreateExecutionProviderInstance(
             ORT_THROW("Invalid value passed for disable_dynamic_shapes: ", option.second);
           }
           OV_provider_options_map[option.first] = option.second;
-        } else if (option.first == "device_id") {
+        } else if (option.first == "enable_dynamic_shapes") {
+          LOGS_DEFAULT(WARNING) << " Deprecation notice - 'enable_dynamic_shapes' is Deprected. Upgrade the API to disable_dynamic_shapes parameter."
+                                   "Please refer https://onnxruntime.ai/docs/execution-providers/OpenVINO-ExecutionProvider.html#requirements to ensure all dependencies are met.";
+          std::string value;
+          if (!(option.second == "True" || option.second == "true" ||
+                option.second == "False" || option.second == "false")) {
+            ORT_THROW("Invalid value passed for enable_dynamic_shapes: ", option.second);
+          }
+          if (option.second == "True" || option.second == "true") {
+            value = "false";
+          } else {
+            value = "true";
+          }
+          OV_provider_options_map["disable_dynamic_shapes"] = value;
+        } else if (option.first == "num_of_threads") {
           OV_provider_options_map[option.first] = option.second;
           continue;
-        } else if (option.first == "num_of_threads") {
+        } else if (option.first == "model_priority") {
           OV_provider_options_map[option.first] = option.second;
           continue;
         } else if (option.first == "num_streams") {
@@ -950,6 +976,9 @@ std::unique_ptr<IExecutionProvider> CreateExecutionProviderInstance(
           OV_provider_options_map[option.first] = option.second;
           continue;
         } else if (option.first == "context") {
+          OV_provider_options_map[option.first] = option.second;
+          continue;
+        } else if (option.first == "export_ep_ctx_blob") {
           OV_provider_options_map[option.first] = option.second;
           continue;
         } else {
@@ -967,7 +996,7 @@ std::unique_ptr<IExecutionProvider> CreateExecutionProviderInstance(
       if (!Env::Default().GetEnvironmentVar("INTEL_OPENVINO_DIR").empty()) {
         ORT_THROW("INTEL_OPENVINO_DIR is set but OpenVINO library wasn't able to be loaded. Please install a supported version of OpenVINO as mentioned in the requirements page (https://onnxruntime.ai/docs/execution-providers/OpenVINO-ExecutionProvider.html#requirements), ensure dependency libraries are in the PATH and your hardware is supported.");
       } else {
-        LOGS_DEFAULT(WARNING) << "Failed to create " << type << ". Please reference https://onnxruntime.ai/docs/execution-providers/OpenVINO-ExecutionProvider.html#requirements to ensure all dependencies are met.";
+        LOGS_DEFAULT(WARNING) << "Failed to create " << type << ". Please refer https://onnxruntime.ai/docs/execution-providers/OpenVINO-ExecutionProvider.html#requirements to ensure all dependencies are met.";
       }
     }
 #endif
@@ -982,7 +1011,7 @@ std::unique_ptr<IExecutionProvider> CreateExecutionProviderInstance(
     return onnxruntime::TVMProviderFactoryCreator::Create(info)->CreateProvider();
 #endif
   } else if (type == kVitisAIExecutionProvider) {
-#if USE_VITISAI
+#ifdef USE_VITISAI
     const auto it = provider_options_map.find(type);
     if (it == provider_options_map.end()) {
       LOGS_DEFAULT(FATAL) << "cannot find provider options for VitisAIExecutionProvider";
@@ -1007,7 +1036,7 @@ std::unique_ptr<IExecutionProvider> CreateExecutionProviderInstance(
 #ifdef USE_DML
     auto cit = provider_options_map.find(type);
     return onnxruntime::DMLProviderFactoryCreator::CreateFromProviderOptions(
-               cit == provider_options_map.end() ? ProviderOptions{} : cit->second)
+               session_options.config_options, cit == provider_options_map.end() ? ProviderOptions{} : cit->second, true)
         ->CreateProvider();
 #endif
   } else if (type == kNnapiExecutionProvider) {
@@ -1327,14 +1356,14 @@ void addGlobalMethods(py::module& m) {
 
 #ifdef ENABLE_ATEN
   m.def("register_aten_op_executor",
-        [](const std::string& is_cpu_argument_address_str, const std::string& aten_op_executor_address_str) -> void {
-          size_t is_cpu_argument_address_int, aten_op_executor_address_int;
+        [](const std::string& is_tensor_argument_address_str, const std::string& aten_op_executor_address_str) -> void {
+          size_t is_tensor_argument_address_int, aten_op_executor_address_int;
           ORT_THROW_IF_ERROR(
-              ParseStringWithClassicLocale(is_cpu_argument_address_str, is_cpu_argument_address_int));
+              ParseStringWithClassicLocale(is_tensor_argument_address_str, is_tensor_argument_address_int));
           ORT_THROW_IF_ERROR(ParseStringWithClassicLocale(aten_op_executor_address_str, aten_op_executor_address_int));
-          void* p_is_cpu_argument = reinterpret_cast<void*>(is_cpu_argument_address_int);
+          void* p_is_tensor_argument = reinterpret_cast<void*>(is_tensor_argument_address_int);
           void* p_aten_op_executor = reinterpret_cast<void*>(aten_op_executor_address_int);
-          contrib::aten_ops::ATenOperatorExecutor::Instance().Initialize(p_is_cpu_argument, p_aten_op_executor);
+          contrib::aten_ops::ATenOperatorExecutor::Instance().Initialize(p_is_tensor_argument, p_aten_op_executor);
         });
 #endif
 }
@@ -1352,7 +1381,8 @@ void addObjectMethods(py::module& m, ExecutionProviderRegistrationFn ep_registra
 
   py::enum_<ExecutionOrder>(m, "ExecutionOrder")
       .value("DEFAULT", ExecutionOrder::DEFAULT)
-      .value("PRIORITY_BASED", ExecutionOrder::PRIORITY_BASED);
+      .value("PRIORITY_BASED", ExecutionOrder::PRIORITY_BASED)
+      .value("MEMORY_EFFICIENT", ExecutionOrder::MEMORY_EFFICIENT);
 
   py::enum_<OrtAllocatorType>(m, "OrtAllocatorType")
       .value("INVALID", OrtInvalidAllocator)

@@ -84,8 +84,6 @@ Status RotaryEmbedding<T>::ComputeInternal(OpKernelContext* context) const {
       rope_style,
       device_prop.maxThreadsPerBlock,
       parameters.transposed);
-
-  return Status::OK();
 }
 
 }  // namespace cuda
