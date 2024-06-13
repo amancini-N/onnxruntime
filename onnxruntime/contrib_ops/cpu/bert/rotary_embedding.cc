@@ -41,7 +41,7 @@ RotaryEmbedding<T>::RotaryEmbedding(const OpKernelInfo& info) : OpKernel(info) {
 template <typename T>
 Status RunRotaryEmbedding(concurrency::ThreadPool* tp, RotaryParameters parameters, const T* input,
                           const int64_t* position_ids, const T* cos_cache, const T* sin_cache, T* output,
-                          bool interleaved) {
+                          bool interleaved, const int rope_style) {
   const int batch_size = parameters.batch_size;
   const int sequence_length = parameters.sequence_length;
   const int n_heads = parameters.num_heads;
@@ -104,7 +104,7 @@ Status RunRotaryEmbedding(concurrency::ThreadPool* tp, RotaryParameters paramete
 
 template Status RunRotaryEmbedding<float>(concurrency::ThreadPool* tp, RotaryParameters parameters, const float* input,
                                           const int64_t* position_ids, const float* cos_cache, const float* sin_cache, float* output,
-                                          bool interleaved);
+                                          bool interleaved, const int rope_style);
 
 template <typename T>
 Status RotaryEmbedding<T>::Compute(OpKernelContext* context) const {
@@ -140,7 +140,7 @@ Status RotaryEmbedding<T>::Compute(OpKernelContext* context) const {
   auto* tp = context->GetOperatorThreadPool();
 
   return RunRotaryEmbedding<T>(tp, parameters, input_src, pos_ids_data, cos_cache_data, sin_cache_data, output_dest,
-                               interleaved);
+                               interleaved, rope_style);
 }
 
 }  // namespace contrib

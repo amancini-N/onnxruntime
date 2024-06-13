@@ -45,6 +45,7 @@ GroupQueryAttention<T>::GroupQueryAttention(const OpKernelInfo& info) : OpKernel
   local_window_size_ = static_cast<int>(info.GetAttrOrDefault<int64_t>("local_window_size", -1));
   do_rotary_ = info.GetAttrOrDefault<int64_t>("do_rotary", 0) == 1;
   rotary_interleaved_ = info.GetAttrOrDefault<int64_t>("rotary_interleaved", 0) == 1;
+  rope_style_ = static_cast<int>(info.GetAttrOrDefault<int64_t>("rope_style", 0));
 }
 
 template <typename T>
@@ -161,7 +162,7 @@ Status GroupQueryAttention<T>::Compute(OpKernelContext* context) const {
     }
     ORT_RETURN_IF_ERROR(RunRotaryEmbedding<T>(tp, rotary_params, q_input,
                                               pos_ids.data(), cos_cache->Data<T>(),
-                                              sin_cache->Data<T>(), q_rotary, rotary_interleaved_));
+                                              sin_cache->Data<T>(), q_rotary, rotary_interleaved_, rope_style_));
 
     rotary_params.num_heads = kv_num_heads_;
     rotary_params.hidden_size = parameters.kv_hidden_size;
@@ -170,7 +171,7 @@ Status GroupQueryAttention<T>::Compute(OpKernelContext* context) const {
     }
     ORT_RETURN_IF_ERROR(RunRotaryEmbedding<T>(tp, rotary_params, k_input,
                                               pos_ids.data(), cos_cache->Data<T>(),
-                                              sin_cache->Data<T>(), k_rotary, rotary_interleaved_));
+                                              sin_cache->Data<T>(), k_rotary, rotary_interleaved_, rope_style_));
     if (packed_qkv) {
       const T* v_input = k_input + kv_num_heads_ * sequence_length * head_size;
       T* v_rotary = k_rotary + kv_num_heads_ * sequence_length * head_size;

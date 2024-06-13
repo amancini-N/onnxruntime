@@ -1085,6 +1085,10 @@ ONNX_MS_OPERATOR_SET_SCHEMA(
               "Rotate using interleaved pattern. Default value is 0 (False).",
               AttributeProto::INT,
               OPTIONAL_VALUE)
+        .Attr("rope_style",
+              "Accepted values: 0 for GPT-NeoX style, 1 for GPT-J style. Default value is 0 (False).",
+              AttributeProto::INT,
+              OPTIONAL_VALUE)
         .Input(0,
                "query",
                "Query with shape (batch_size, sequence_length, hidden_size), or packed QKV with shape"

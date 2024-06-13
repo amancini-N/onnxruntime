@@ -49,6 +49,7 @@ GroupQueryAttention<T>::GroupQueryAttention(const OpKernelInfo& info)
   local_window_size_ = static_cast<int>(info.GetAttrOrDefault<int64_t>("local_window_size", -1));
   do_rotary_ = info.GetAttrOrDefault<int64_t>("do_rotary", 0) == 1;
   rotary_interleaved_ = info.GetAttrOrDefault<int64_t>("rotary_interleaved", 0) == 1;
+  rope_style_ = static_cast<int>(info.GetAttrOrDefault<int64_t>("rope_style", 0));
   scale_ = info.GetAttrOrDefault<float>("scale", 0.0f);
 
 #if USE_FLASH_ATTENTION
@@ -109,6 +110,7 @@ Status GroupQueryAttention<T>::ComputeInternal(OpKernelContext* context) const {
   int sequence_length = parameters.sequence_length;
   parameters.do_rotary = do_rotary_;
   parameters.rotary_interleaved = rotary_interleaved_;
+  parameters.rope_style = rope_style_;
 
   if (do_rotary_ && (cos_cache == nullptr || sin_cache == nullptr)) {
     return ORT_MAKE_STATUS(ONNXRUNTIME, INVALID_ARGUMENT,

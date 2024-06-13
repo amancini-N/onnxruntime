@@ -22,6 +22,7 @@ class GQAAttentionBase : public AttentionBase {
   int local_window_size_;
   bool do_rotary_;
   bool rotary_interleaved_;
+  int rope_style_;
 
   template <typename T>
   Status ApplyAttention(const T* Q,                                 // Q data with shape BxNxSxH

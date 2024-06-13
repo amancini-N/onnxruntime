@@ -753,14 +753,14 @@ Status EfficientAttention(
                                                        parameters.batch_size, parameters.sequence_length,
                                                        parameters.num_heads, parameters.head_size,
                                                        parameters.rotary_dim, parameters.seqlen_present_kv_cache,
-                                                       /*position_ids_format*/ 1, parameters.rotary_interleaved,
+                                                       /*position_ids_format*/ 1, parameters.rotary_interleaved, parameters.rope_style,
                                                        device_prop.maxThreadsPerBlock, /*transposed*/ false));
     ORT_RETURN_IF_ERROR(LaunchRotaryEmbeddingKernel<T>(stream, k_buffer, reinterpret_cast<const T*>(key),
                                                        position_ids_buff, data.cos_cache, data.sin_cache,
                                                        parameters.batch_size, parameters.sequence_length,
                                                        parameters.kv_num_heads, parameters.head_size,
                                                        parameters.rotary_dim, parameters.seqlen_present_kv_cache,
-                                                       /*position_ids_format*/ 1, parameters.rotary_interleaved,
+                                                       /*position_ids_format*/ 1, parameters.rotary_interleaved, parameters.rope_style,
                                                        device_prop.maxThreadsPerBlock, /*transposed*/ false));
     query = reinterpret_cast<const void*>(q_buffer);
     key = reinterpret_cast<const void*>(k_buffer);
