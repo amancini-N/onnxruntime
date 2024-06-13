@@ -429,11 +429,11 @@ BFCArena::Chunk* BFCArena::FindChunkPtr(BinNum bin_num, size_t rounded_bytes,
       ORT_ENFORCE(!chunk->in_use());
       if (chunk->size >= rounded_bytes) {
         // We found an existing chunk that fits us that wasn't in use, now check the stream
-        bool safe_to_use = chunk->stream == stream ||
-                           !chunk->stream ||
-                           (stream && chunk->stream &&
-                            chunk->stream_timestamp < stream->GetLastSyncTimestampWithTargetStream(chunk->stream));
-        if (safe_to_use) {
+        // bool safe_to_use = chunk->stream == stream ||
+        //                    !chunk->stream ||
+        //                    (stream && chunk->stream &&
+        //                     chunk->stream_timestamp < stream->GetLastSyncTimestampWithTargetStream(chunk->stream));
+        if (true) {
           // the chunk with same stream has higher priority.
           return SplitFreeChunkFromBin(&b->free_chunks, citer, rounded_bytes, num_bytes);
         } else if (allow_chunk_from_different_stream && !other_stream_candidate) {
