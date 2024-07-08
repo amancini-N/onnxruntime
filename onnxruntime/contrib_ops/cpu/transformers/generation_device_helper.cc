@@ -814,7 +814,7 @@ Status UpdateDecoderFeeds(
   ORT_UNUSED_PARAMETER(stream);
   ORT_UNUSED_PARAMETER(beam_indices_gpu);
   ORT_UNUSED_PARAMETER(input_sequence_len);
-  ORT_UNUSED_PARAMETER(past_present_share_buffer);
+  // ORT_UNUSED_PARAMETER(past_present_share_buffer);
   ORT_UNUSED_PARAMETER(need_cache_indir);
   // last_outputs: logits, present_key_self_0, present_value_self_0, ...
   // next_inputs: input_ids,
@@ -855,17 +855,23 @@ Status UpdateDecoderFeeds(
 #endif
 
   // Update past state
-  ORT_ENFORCE(last_outputs.size() >= static_cast<size_t>(1) + num_present_tensors);
-  // TODO(tianleiwu): remove num_beams==1 once GreedySearch operator is available.
-  if (num_beams == 1) {
-    // feed present_* output to past_* inputs one by one
-    for (ptrdiff_t i = 0; i < num_present_tensors; ++i) {
-      next_inputs[t5_decoder_first_past_input_idx + i] =
-          last_outputs[t5_decoder_first_present_output_idx + i];
-    }
+  if (past_present_share_buffer) {
+    // Update past sequence length
+    const ptrdiff_t past_sequence_length_idx = 2 * num_present_tensors + t5_decoder_first_past_input_idx;
+    *(next_inputs[past_sequence_length_idx].GetMutable<Tensor>()->MutableData<int32_t>()) = current_length - 1;
   } else {
-    PickT5PastState<T>(last_outputs, next_inputs, num_present_tensors, beam_indices,
-                       t5_decoder_first_past_input_idx, t5_decoder_first_present_output_idx, allocator);
+    ORT_ENFORCE(last_outputs.size() >= static_cast<size_t>(1) + num_present_tensors);
+    // TODO(tianleiwu): remove num_beams==1 once GreedySearch operator is available.
+    if (num_beams == 1) {
+      // feed present_* output to past_* inputs one by one
+      for (ptrdiff_t i = 0; i < num_present_tensors; ++i) {
+        next_inputs[t5_decoder_first_past_input_idx + i] =
+            last_outputs[t5_decoder_first_present_output_idx + i];
+      }
+    } else {
+      PickT5PastState<T>(last_outputs, next_inputs, num_present_tensors, beam_indices,
+                        t5_decoder_first_past_input_idx, t5_decoder_first_present_output_idx, allocator);
+    }
   }
   return Status::OK();
 }

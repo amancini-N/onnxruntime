@@ -37,17 +37,21 @@ class AttentionCPUBase : public AttentionBase {
                         int v_head_size,                       // head size of V (H_v)
                         int v_hidden_size,                     // hidden size of V (D_v)
                         const Tensor* relative_position_bias,  // bias addition in QK. Its size is BxNxSxT
+                        bool past_present_share_buffer,        // whether past and present states are shared
+                        int past_sequence_length,              // past sequence length
                         OpKernelContext* context) const {
     AllocatorPtr allocator;
     ORT_RETURN_IF_ERROR(context->GetTempSpaceAllocator(&allocator));
 
     auto* tp = context->GetOperatorThreadPool();
 
-    int past_sequence_length = 0;
+    if (!past_present_share_buffer) {
+      past_sequence_length = 0;
+    }
     Tensor* present = nullptr;
     if (present_key == nullptr && present_value == nullptr) {
       present = GetPresent(context, past, batch_size, v_head_size, kv_sequence_length, past_sequence_length);
-    } else if (past_key != nullptr && past_value != nullptr) {
+    } else if (past_key != nullptr && past_value != nullptr && !past_present_share_buffer) {
       past_sequence_length = static_cast<int>(past_key->Shape().GetDims()[2]);
     }
 
@@ -86,6 +90,7 @@ class AttentionCPUBase : public AttentionBase {
     T* present_key_data = present_key != nullptr ? present_key->MutableData<T>() : nullptr;
     const T* past_value_data = past_value != nullptr ? past_value->Data<T>() : nullptr;
     T* present_value_data = present_value != nullptr ? present_value->MutableData<T>() : nullptr;
+    const size_t max_sequence_length = past_key != nullptr ? past_key->Shape().GetDims()[2] : past != nullptr ? past->Shape().GetDims()[2] : 0;
 
     const T* relative_position_bias_data = nullptr;
     if (relative_position_bias != nullptr) {
@@ -94,7 +99,7 @@ class AttentionCPUBase : public AttentionBase {
 
     ComputeAttentionProbs<T>(attn_probs_as_pointer, Q, K,
                              mask_index_data, mask_index_dims, static_cast<T*>(mask_data), causal,
-                             batch_size, sequence_length, kv_sequence_length, past_sequence_length,
+                             batch_size, sequence_length, kv_sequence_length, past_sequence_length, max_sequence_length,
                              qk_head_size == 0 ? v_head_size : qk_head_size, past_data, past_key_data,
                              present_data, present_key_data, tp, relative_position_bias_data);
 
@@ -105,7 +110,7 @@ class AttentionCPUBase : public AttentionBase {
 
     ComputeVxAttentionScore(output->MutableData<T>(), static_cast<T*>(out_tmp_data),
                             attn_probs_as_pointer, V,
-                            batch_size, sequence_length, kv_sequence_length, past_sequence_length,
+                            batch_size, sequence_length, kv_sequence_length, past_sequence_length, max_sequence_length,
                             v_head_size, v_hidden_size, past_data, past_value_data,
                             present_data, present_value_data, tp);
 
@@ -129,6 +134,7 @@ class AttentionCPUBase : public AttentionBase {
                              int sequence_length,                       // sequence length of self-attention (S)
                              int kv_sequence_length,                    // sequence length of cross-attention (L)
                              int past_sequence_length,                  // sequence length of past state
+                             int max_sequence_length,                   // max seq length of past state
                              int head_size,                             // head size of self-attention
                              const T* past,                             // past state
                              const T* past_key,                         // past key only (if not using past state)
@@ -142,6 +148,8 @@ class AttentionCPUBase : public AttentionBase {
     const size_t q_input_chunk_length = static_cast<size_t>(sequence_length) * head_size;      // S x H
     const size_t kv_input_chunk_length = static_cast<size_t>(kv_sequence_length) * head_size;  // L x H
     const size_t present_chunk_length = past_chunk_length + kv_input_chunk_length;             // T x H
+    const size_t past_buff_chunk_length = past_present_share_buffer_ ? max_sequence_length * head_size : past_chunk_length;
+    const size_t present_buff_chunk_length = past_present_share_buffer_ ? max_sequence_length * head_size : present_chunk_length;
 
     {
       // mask_data is nullptr when mask_index is nullptr and not unidirectional, otherwise its shape is BxSxT
@@ -194,9 +202,11 @@ class AttentionCPUBase : public AttentionBase {
           const T* k = K + kv_input_chunk_length * i;
           if (nullptr != present) {
             // Concatenate past_K and K : (BxNx)PxH, (BxNx)LxH -> (BxNx)TxH
-            k = ConcatStateChunk(past, k, present, past_chunk_length, present_chunk_length, i);
+            k = ConcatStateChunk(past, k, present, present_buff_chunk_length, past_buff_chunk_length, past_chunk_length,
+                                 kv_input_chunk_length, i);
           } else if (nullptr != present_key) {
-            k = ConcatStateChunk(past_key, k, present_key, past_chunk_length, present_chunk_length, i);
+            k = ConcatStateChunk(past_key, k, present_key, present_buff_chunk_length, past_buff_chunk_length,
+                                 past_chunk_length, kv_input_chunk_length, i);
           }
 
           // Compute Q*K' + AttentionMask
@@ -234,6 +244,7 @@ class AttentionCPUBase : public AttentionBase {
                                int sequence_length,       // sequence length
                                int kv_sequence_length,    // sequence length of K or V
                                int past_sequence_length,  // sequence length in past state
+                               int max_sequence_length,   // max sequence length in past state
                                int v_head_size,           // head size of V (H_v)
                                int v_hidden_size,         // hidden size of V (D_v)
                                const T* past,             // past state
@@ -246,6 +257,8 @@ class AttentionCPUBase : public AttentionBase {
     const ptrdiff_t q_input_chunk_length = SafeInt<ptrdiff_t>(sequence_length) * v_head_size;      // S x H_v
     const ptrdiff_t kv_input_chunk_length = SafeInt<ptrdiff_t>(kv_sequence_length) * v_head_size;  // L x H_v
     const ptrdiff_t present_chunk_length = past_chunk_length + kv_input_chunk_length;              // T x H_v
+    const ptrdiff_t past_buff_chunk_length = past_present_share_buffer_ ? max_sequence_length * v_head_size : past_chunk_length;
+    const ptrdiff_t present_buff_chunk_length = past_present_share_buffer_ ? max_sequence_length * v_head_size : present_chunk_length;
 
     // Move the pointer of past and present to start of v values.
     if (nullptr != past) {
@@ -277,9 +290,11 @@ class AttentionCPUBase : public AttentionBase {
         const T* v = V + kv_input_chunk_length * i;
         if (nullptr != present) {
           // Concatenate past_V and V: (BxNx)PxH_v, (BxNx)LxH_v -> (BxNx)TxH_v
-          v = ConcatStateChunk(past, v, present, past_chunk_length, present_chunk_length, i);
+          v = ConcatStateChunk(past, v, present, present_buff_chunk_length, past_buff_chunk_length, past_chunk_length,
+                               kv_input_chunk_length, i);
         } else if (nullptr != present_value) {
-          v = ConcatStateChunk(past_value, v, present_value, past_chunk_length, present_chunk_length, i);
+          v = ConcatStateChunk(past_value, v, present_value, present_buff_chunk_length, past_buff_chunk_length, past_chunk_length,
+                               kv_input_chunk_length, i);
         }
 
         T* current_tmp_data = reinterpret_cast<T*>(tmp_buffer) + q_input_chunk_length * i;

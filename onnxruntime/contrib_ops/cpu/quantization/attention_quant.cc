@@ -291,7 +291,7 @@ Status QAttention<T>::Compute(OpKernelContext* context) const {
   return ApplyAttention(Q, K, V, mask_index, past_tensor, nullptr /* past_key */, nullptr /* past_value*/,
                         output, nullptr /* attn_probs */, nullptr /* present_key */, nullptr /* present_value */,
                         batch_size, sequence_length, sequence_length,
-                        head_size, head_size, hidden_size, nullptr /* rel_pos_bias */, context);
+                        head_size, head_size, hidden_size, nullptr /* rel_pos_bias */, false /* past_present_share_buffer */, 0 /*past_sequence_length */, context);
 }
 
 }  // namespace contrib

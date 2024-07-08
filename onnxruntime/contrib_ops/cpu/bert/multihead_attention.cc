@@ -51,6 +51,7 @@ Status MultiHeadAttention<T>::Compute(OpKernelContext* context) const {
   const Tensor* extra_add_qk = context->Input<Tensor>(5);
   const Tensor* past_key = context->Input<Tensor>(6);
   const Tensor* past_value = context->Input<Tensor>(7);
+  const Tensor* past_seq_len = context->Input<Tensor>(8);
 
   if (query->Shape().GetDims().size() == 5) {
     ORT_NOT_IMPLEMENTED("Packed QKV of shape (B, L, N, 3, H) not implemented for CPU");
@@ -61,7 +62,7 @@ Status MultiHeadAttention<T>::Compute(OpKernelContext* context) const {
 
   AttentionParameters parameters = {};
   constexpr float scale = 1.0f;
-  bool past_present_share_buffer = false;
+  bool past_present_share_buffer = nullptr != past_seq_len;
   ORT_RETURN_IF_ERROR(multihead_attention_helper::CheckInputs<Tensor>(query,
                                                                       key,
                                                                       value,
@@ -70,7 +71,7 @@ Status MultiHeadAttention<T>::Compute(OpKernelContext* context) const {
                                                                       extra_add_qk,
                                                                       past_key,
                                                                       past_value,
-                                                                      nullptr,
+                                                                      past_seq_len,
                                                                       &parameters,
                                                                       num_heads_,
                                                                       mask_filter_value_,
@@ -108,8 +109,9 @@ Status MultiHeadAttention<T>::Compute(OpKernelContext* context) const {
   bool kv_BNSH = key != nullptr && value != nullptr && key->Shape().GetDims().size() == 4 && value->Shape().GetDims().size() == 4;
 
   // If optional outputs aren't needed, present_k and present_v will be null
-  std::vector<int64_t> present_k_shape({static_cast<int64_t>(batch_size), static_cast<int64_t>(num_heads_), static_cast<int64_t>(total_kv_sequence_length), static_cast<int64_t>(qk_head_size)});
-  std::vector<int64_t> present_v_shape({static_cast<int64_t>(batch_size), static_cast<int64_t>(num_heads_), static_cast<int64_t>(total_kv_sequence_length), static_cast<int64_t>(v_head_size)});
+  size_t out_seq_length = parameters.past_present_share_buffer ? parameters.max_sequence_length : total_kv_sequence_length;
+  std::vector<int64_t> present_k_shape({static_cast<int64_t>(batch_size), static_cast<int64_t>(num_heads_), static_cast<int64_t>(out_seq_length), static_cast<int64_t>(qk_head_size)});
+  std::vector<int64_t> present_v_shape({static_cast<int64_t>(batch_size), static_cast<int64_t>(num_heads_), static_cast<int64_t>(out_seq_length), static_cast<int64_t>(v_head_size)});
   Tensor* present_k = context->Output(1, present_k_shape);
   Tensor* present_v = context->Output(2, present_v_shape);
 
@@ -134,7 +136,7 @@ Status MultiHeadAttention<T>::Compute(OpKernelContext* context) const {
                           key_padding_mask, nullptr /* past */, nullptr /* past_k */, nullptr /* past_v */,
                           output, attn_probs, present_k, present_v,
                           batch_size, q_sequence_length, kv_sequence_length,
-                          qk_head_size, v_head_size, v_hidden_size, extra_add_qk, context);
+                          qk_head_size, v_head_size, v_hidden_size, extra_add_qk, false /* past_present_share_buffer */, 0 /* past_sequence_length */, context);
   }
 
   OrtValue K;
@@ -148,7 +150,7 @@ Status MultiHeadAttention<T>::Compute(OpKernelContext* context) const {
   return ApplyAttention(Q.GetMutable<Tensor>()->MutableData<T>(), K.GetMutable<Tensor>()->MutableData<T>(), V.GetMutable<Tensor>()->MutableData<T>(),
                         key_padding_mask, nullptr /* past */, past_key, past_value, output, attn_probs, present_k, present_v,
                         batch_size, q_sequence_length, kv_sequence_length,
-                        qk_head_size, v_head_size, v_hidden_size, extra_add_qk, context);
+                        qk_head_size, v_head_size, v_hidden_size, extra_add_qk, parameters.past_present_share_buffer, parameters.past_sequence_length, context);
 }
 }  // namespace contrib
 }  // namespace onnxruntime

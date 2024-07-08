@@ -91,6 +91,7 @@ Status MultiHeadAttention<T>::ComputeInternal(OpKernelContext* context) const {
   const Tensor* relative_position_bias = context->Input<Tensor>(5);
   const Tensor* past_key = context->Input<Tensor>(6);
   const Tensor* past_value = context->Input<Tensor>(7);
+  const Tensor* past_seq_len = context->Input<Tensor>(8);
 
   auto& device_prop = GetDeviceProp();
   AttentionParameters parameters;
@@ -104,13 +105,13 @@ Status MultiHeadAttention<T>::ComputeInternal(OpKernelContext* context) const {
                                                                       relative_position_bias,
                                                                       past_key,
                                                                       past_value,
-                                                                      nullptr,  // past_seq_len
+                                                                      past_seq_len,  // past_seq_len
                                                                       &parameters,
                                                                       num_heads_,
                                                                       mask_filter_value_,
                                                                       scale_,
                                                                       is_unidirectional_,
-                                                                      false,  // past_present_share_buffer
+                                                                      nullptr != past_seq_len,  // past_present_share_buffer
                                                                       false,  // dmmha_packing
                                                                       device_prop.maxThreadsPerBlock));
   int sequence_length = parameters.sequence_length;
@@ -128,8 +129,10 @@ Status MultiHeadAttention<T>::ComputeInternal(OpKernelContext* context) const {
   attn_probs_shape[3] = static_cast<int64_t>(parameters.total_sequence_length);
   Tensor* attn_probs = context->Output(3, attn_probs_shape);
 
+
+  size_t out_sequence_length = parameters.past_present_share_buffer ? parameters.max_sequence_length : parameters.total_sequence_length;
   std::vector<int64_t> present_dims{
-      parameters.batch_size, parameters.num_heads, parameters.total_sequence_length, parameters.head_size};
+      parameters.batch_size, parameters.num_heads, out_sequence_length, parameters.head_size};
   TensorShape present_shape(present_dims);
   Tensor* present_key = context->Output(1, present_shape);
   Tensor* present_value = context->Output(2, present_shape);

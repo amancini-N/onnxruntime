@@ -202,19 +202,23 @@ template <typename T>
 T* ConcatStateChunk(const T* past,
                     const T* chunk,
                     T* present,
+                    size_t present_buff_chunk_length,
+                    size_t past_buff_chunk_length,
                     size_t past_chunk_length,
-                    size_t present_chunk_length,
+                    size_t new_chunk_length,
                     std::ptrdiff_t i) {
-  T* start = present + i * present_chunk_length;
+  T* start = present + i * present_buff_chunk_length;
 
   T* p = start;
   if (nullptr != past) {
-    const T* src_past = past + i * past_chunk_length;
-    memcpy(p, src_past, past_chunk_length * sizeof(T));
+    if (past != present) {
+      const T* src_past = past + i * past_buff_chunk_length;
+      memcpy(p, src_past, past_chunk_length * sizeof(T));
+    }
     p += past_chunk_length;
   }
 
-  memcpy(p, chunk, (present_chunk_length - past_chunk_length) * sizeof(T));
+  memcpy(p, chunk, new_chunk_length * sizeof(T));
   return start;
 }
 

@@ -984,6 +984,10 @@ ONNX_MS_OPERATOR_SET_SCHEMA(
               "Whether every token can only attend to previous tokens. Default value is 0.",
               AttributeProto::INT,
               static_cast<int64_t>(0))
+        .Attr("past_present_share_buffer",
+              "Whether to share buffer for past and present states. Default value is 0.",
+              AttributeProto::INT,
+              OPTIONAL_VALUE)
         .Input(0,
                "query",
                "Query with shape (batch_size, sequence_length, hidden_size), or packed QKV with shape (batch_size, kv_sequence_length, num_heads, 3, head_size)",
@@ -1025,6 +1029,11 @@ ONNX_MS_OPERATOR_SET_SCHEMA(
                "past_value",
                "past state for self attention value with shape (batch_size, num_heads, past_sequence_length, head_size)",
                "T",
+               OpSchema::Optional)
+        .Input(8,
+               "past_seq_len",
+               "sequence length of past key and value. To be passed only in case of past present share buffer.",
+               "M",
                OpSchema::Optional)
         .Output(0,
                 "output",

@@ -402,6 +402,84 @@ __global__ void AddBiasTransAppendKvToPresent(
   }
 }
 
+template <typename T>
+__global__ void AddBiasTransAppendKvToSplitPresentSmall(
+    const T* k, const T* v, const T* biases, T* present_k, T* present_v,
+    const int head_size, const int past_sequence_length, const int max_sequence_length) {
+  // Input (k, v):  BxSxNxH  (Format 1)
+  // Output (present_k, present_v): (B, N, [P..P+S) of MaxS, H),
+  // B is batch_size, S is sequence_length, N is num_heads, H is head_size
+  const int n = threadIdx.y;
+  const int s = blockIdx.x;
+  const int b = blockIdx.y;
+  const int N = blockDim.y;
+  const int S = gridDim.x;
+  const int B = gridDim.y;
+
+  const int NH = N * head_size;
+  const int NHS = NH * S;
+
+  if (biases) {
+    biases += n * head_size;
+  }
+
+  const int MsH = max_sequence_length * head_size;
+  const int NMsH = N * MsH;
+  const int BNMsH = B * NMsH;
+  const long present_offset = ((past_sequence_length + s) * head_size + n * MsH + b * NMsH);
+  const long input_offset = (n * head_size + s * NH + b * NHS);
+
+  k += input_offset;
+  v += input_offset;
+  present_k += present_offset;
+  present_v += present_offset;
+
+  for (int h = threadIdx.x; h < head_size; h += blockDim.x) {
+    T bias = (biases ? biases[h] : (T)0.0f);
+    present_k[h] = k[h] + bias;
+    present_v[h] = v[h] + bias;
+  }
+}
+
+template <typename T>
+__global__ void AddBiasTransAppendKvToSplitPresent(
+    const T* k, const T* v, const T* biases, T* present_k, T* present_v,
+    const int head_size, const int past_sequence_length, const int max_sequence_length) {
+  // Input (k, v):  BxSxNxH  (Format 1)
+  // Output (present_k, present_v): (B, N, [P..P+S) of MaxS, H),
+  // B is batch_size, S is sequence_length, N is num_heads, H is head_size
+  const int n = blockIdx.x;
+  const int s = blockIdx.y;
+  const int b = (blockIdx.z >> 1);
+  const int N = gridDim.x;
+  const int S = gridDim.y;
+  const int B = (gridDim.z >> 1);
+
+  const int NH = N * head_size;
+  const int NHS = NH * S;
+
+  if (biases) {
+    biases += n * head_size;
+  }
+
+  const int MsH = max_sequence_length * head_size;
+  const int NMsH = N * MsH;
+  const int BNMsH = B * NMsH;
+  const long input_offset = (n * head_size + s * NH + b * NHS);
+  const long present_offset = ((past_sequence_length + s) * head_size + n * MsH + b * NMsH);
+
+  k += input_offset;
+  v += input_offset;
+  present_k += present_offset;
+  present_v += present_offset;
+
+  for (int h = threadIdx.x; h < head_size; h += blockDim.x) {
+    T bias = (biases ? biases[h] : (T)0.0f);
+    present_k[h] = k[h] + bias;
+    present_v[h] = v[h] + bias;
+  }
+}
+
 // qkv buffer is merged tensor of shape (B,S,3,N,H), k v is the second/third of the 3.
 // bias is of shape (3, NxH) or nullptr
 // append to present of (2, B, N, (P..T) of M, H),
@@ -436,6 +514,42 @@ Status LaunchAddBiasTransAppendKvToPresent(cudaStream_t stream,
   return CUDA_CALL(cudaGetLastError());
 }
 
+// k and v are separate here, shape (B,S,N,H).
+// bias is of shape (NxH) or nullptr
+// append to present_k and present_v of (B, N, (P..T) of M, H),
+template <typename T>
+Status LaunchAddBiasTransAppendKvToSplitPresent(cudaStream_t stream,
+                                                const int max_sequence_length,
+                                                const int past_sequence_length,
+                                                const int sequence_length,
+                                                const int batch_size,
+                                                const int head_size,
+                                                const int num_heads,
+                                                const int max_threads_per_block,
+                                                const T* bias,
+                                                const T* k,
+                                                const T* v,
+                                                T* present_k,
+                                                T* present_v) {
+  assert(head_size <= (1 << 30));
+
+  int64_t nh = (int64_t)head_size * num_heads;
+  if (nh <= max_threads_per_block) {
+    const dim3 grid(sequence_length, batch_size, 1);
+    const dim3 block(max_threads_per_block / num_heads, num_heads, 1);
+
+    AddBiasTransAppendKvToSplitPresentSmall<T><<<grid, block, 0, stream>>>(
+        k, v, biases, present_k, present_v, head_size, past_sequence_length, max_sequence_length);
+  } else {
+    const dim3 grid(num_heads, sequence_length, batch_size);
+    const dim3 block(std::min(head_size, max_threads_per_block), 1, 1);
+    AddBiasTransAppendKvToPresent<T><<<grid, block, 0, stream>>>(
+        k, v, biases, present_k, present_v, head_size, past_sequence_length, max_sequence_length);
+  }
+
+  return CUDA_CALL(cudaGetLastError());
+}
+
 template Status LaunchAddBiasTransAppendKvToPresent(cudaStream_t stream,
                                                     const int max_sequence_length,
                                                     const int total_sequence_length,
@@ -459,6 +573,35 @@ template Status LaunchAddBiasTransAppendKvToPresent(cudaStream_t stream,
                                                     const half* bias,
                                                     const half* qkv_buffer,
                                                     half* present);
+
+template Status LaunchAddBiasTransAppendKvToSplitPresent(cudaStream_t stream,
+                                                         const int max_sequence_length,
+                                                         const int total_sequence_length,
+                                                         const int sequence_length,
+                                                         const int batch_size,
+                                                         const int head_size,
+                                                         const int num_heads,
+                                                         const int max_threads_per_block,
+                                                         const float* bias,
+                                                         const float* k,
+                                                         const float* v,
+                                                         float* present_k,
+                                                         float* present_v);
+
+template Status LaunchAddBiasTransAppendKvToSplitPresent(cudaStream_t stream,
+                                                         const int max_sequence_length,
+                                                         const int total_sequence_length,
+                                                         const int sequence_length,
+                                                         const int batch_size,
+                                                         const int head_size,
+                                                         const int num_heads,
+                                                         const int max_threads_per_block,
+                                                         const half* bias,
+                                                         const half* k,
+                                                         const half* v,
+                                                         half* present_k,
+                                                         half* present_v);
+
 #endif
 
 }  // namespace cuda

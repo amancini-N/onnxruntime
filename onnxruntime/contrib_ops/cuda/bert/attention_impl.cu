@@ -571,27 +571,44 @@ Status QkvToContext(
     assert(data.has_qkv_workspace);
 
     if (nullptr != data.past_key || nullptr != data.present_key) {
-      // TODO: support this case.
-      ORT_THROW("buffer sharing for no bias case between past and present is not supported yet.");
+      if (data.present != data.past) {
+        // For easy testing. Production should better avoid this path.
+        int64_t kv_size = 2LL * (int64_t)batch_size * num_heads * parameters.max_sequence_length * qk_head_size;
+        cudaMemcpyAsync(data.present_k, data.past_k, kv_size * sizeof(T), cudaMemcpyDeviceToDevice, stream);
+        cudaMemcpyAsync(data.present_v, data.past_v, kv_size * sizeof(T), cudaMemcpyDeviceToDevice, stream);
+      }
+
+      // For fused causal, bias has been added to gemm_buffer.
+      // const T* bias = (nullptr != fused_runner && parameters.is_unidirectional) ? nullptr : data.bias;
+
+      // append last k v to present
+      ORT_RETURN_IF_ERROR(LaunchAddBiasTransAppendKvToSplitPresent(
+          stream, parameters.max_sequence_length, parameters.past_sequence_length, sequence_length,
+          batch_size, qk_head_size, num_heads, max_threads_per_block,
+          data.bias, data.key, data.value, data.present_k, data.present_v));
+
+      data.k = data.present_k;
+      data.v = data.present_v;
     }
+    else {
+      if (data.present != data.past) {
+        // For easy testing. Production should better avoid this path.
+        int64_t kv_size = 2LL * (int64_t)batch_size * num_heads * parameters.max_sequence_length * qk_head_size;
+        cudaMemcpyAsync(data.present, data.past, kv_size * sizeof(T), cudaMemcpyDeviceToDevice, stream);
+      }
 
-    if (data.present != data.past) {
-      // For easy testing. Production should better avoid this path.
-      int64_t kv_size = 2LL * (int64_t)batch_size * num_heads * parameters.max_sequence_length * qk_head_size;
-      cudaMemcpyAsync(data.present, data.past, kv_size * sizeof(T), cudaMemcpyDeviceToDevice, stream);
+      // For fused causal, bias has been added to gemm_buffer.
+      const T* bias = (nullptr != fused_runner && parameters.is_unidirectional) ? nullptr : data.bias;
+
+      // append last k v to present
+      ORT_RETURN_IF_ERROR(LaunchAddBiasTransAppendKvToPresent(
+          stream, parameters.max_sequence_length, parameters.past_sequence_length, sequence_length,
+          batch_size, qk_head_size, num_heads, max_threads_per_block,
+          bias, data.gemm_buffer, data.present));
+
+      data.k = data.present;
+      data.v = data.present + batch_size * num_heads * parameters.max_sequence_length * qk_head_size;
     }
-
-    // For fused causal, bias has been added to gemm_buffer.
-    const T* bias = (nullptr != fused_runner && parameters.is_unidirectional) ? nullptr : data.bias;
-
-    // append last k v to present
-    ORT_RETURN_IF_ERROR(LaunchAddBiasTransAppendKvToPresent(
-        stream, parameters.max_sequence_length, parameters.past_sequence_length, sequence_length,
-        batch_size, qk_head_size, num_heads, max_threads_per_block,
-        bias, data.gemm_buffer, data.present));
-
-    data.k = data.present;
-    data.v = data.present + batch_size * num_heads * parameters.max_sequence_length * qk_head_size;
   }
 
   // Q, K and V are ready now

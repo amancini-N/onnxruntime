@@ -312,7 +312,7 @@ Status BeamSearchT5<T>::Execute(const FeedsFetchesManager& encoder_feeds_fetches
       int self_value_idx = self_key_idx + 1;
       dumper->Print("past_key_self", i, true);
       dumper->Print("", decoder_feeds[self_key_idx]);
-      dumper->Print("past_value_self", i + 1, true);
+      dumper->Print("past_value_self", i, true);
       dumper->Print("", decoder_feeds[self_value_idx]);
       int cross_key_idx = decoder_subgraph_.GetFirstPastInputIndex() + 2 * decoder_subgraph_.num_layers + 2 * i;
       int cross_value_idx = cross_key_idx + 1;
