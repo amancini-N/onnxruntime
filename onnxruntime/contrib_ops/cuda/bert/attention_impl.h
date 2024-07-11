@@ -178,6 +178,21 @@ Status LaunchAddBiasTransAppendKvToPresent(cudaStream_t stream,
                                            T* present);
 
 template <typename T>
+Status LaunchAddBiasTransAppendKvToSplitPresent(cudaStream_t stream,
+                                                const int max_sequence_length,
+                                                const int past_sequence_length,
+                                                const int sequence_length,
+                                                const int batch_size,
+                                                const int head_size,
+                                                const int num_heads,
+                                                const int max_threads_per_block,
+                                                const T* bias,
+                                                const T* k,
+                                                const T* v,
+                                                T* present_k,
+                                                T* present_v);
+
+template <typename T>
 Status LaunchStridedCopy(cudaStream_t stream,
                          const T* in, int4 in_shape, longlong4 in_strides,  // coord (b,n,s,h)
                          T* out, longlong4 out_strides,                     // coord (b,n,s,h)

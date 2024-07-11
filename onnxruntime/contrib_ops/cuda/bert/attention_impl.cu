@@ -565,17 +565,16 @@ Status QkvToContext(
     assert(qk_head_size == v_head_size);
     assert(data.fused_cross_attention_kernel == nullptr);
     assert(nullptr == fused_runner || parameters.is_unidirectional);
-    assert(data.gemm_buffer != nullptr);
     assert(!data.use_memory_efficient_attention);
     assert(!data.use_flash_attention);
     assert(data.has_qkv_workspace);
 
     if (nullptr != data.past_key || nullptr != data.present_key) {
-      if (data.present != data.past) {
+      if (data.present_key != data.past_key) {
         // For easy testing. Production should better avoid this path.
         int64_t kv_size = 2LL * (int64_t)batch_size * num_heads * parameters.max_sequence_length * qk_head_size;
-        cudaMemcpyAsync(data.present_k, data.past_k, kv_size * sizeof(T), cudaMemcpyDeviceToDevice, stream);
-        cudaMemcpyAsync(data.present_v, data.past_v, kv_size * sizeof(T), cudaMemcpyDeviceToDevice, stream);
+        cudaMemcpyAsync(data.present_key, data.past_key, kv_size * sizeof(T), cudaMemcpyDeviceToDevice, stream);
+        cudaMemcpyAsync(data.present_value, data.past_value, kv_size * sizeof(T), cudaMemcpyDeviceToDevice, stream);
       }
 
       // For fused causal, bias has been added to gemm_buffer.
@@ -585,12 +584,13 @@ Status QkvToContext(
       ORT_RETURN_IF_ERROR(LaunchAddBiasTransAppendKvToSplitPresent(
           stream, parameters.max_sequence_length, parameters.past_sequence_length, sequence_length,
           batch_size, qk_head_size, num_heads, max_threads_per_block,
-          data.bias, data.key, data.value, data.present_k, data.present_v));
+          data.bias, data.key, data.value, data.present_key, data.present_value));
 
-      data.k = data.present_k;
-      data.v = data.present_v;
+      data.k = data.present_key;
+      data.v = data.present_value;
     }
     else {
+      assert(data.gemm_buffer != nullptr);
       if (data.present != data.past) {
         // For easy testing. Production should better avoid this path.
         int64_t kv_size = 2LL * (int64_t)batch_size * num_heads * parameters.max_sequence_length * qk_head_size;

@@ -97,6 +97,23 @@ Status MultiHeadAttention<T>::ComputeInternal(OpKernelContext* context) const {
   AttentionParameters parameters;
   parameters.use_tf32 = UseTF32();
 
+  std::unique_ptr<Tensor> past_seq_len_cpu_unique;
+  Tensor* past_seq_len_cpu = nullptr;
+  AllocatorPtr alloc;
+  if (nullptr != past_seq_len) {
+    // past_seq_len is on GPU, but we need to copy it to CPU to check the value.
+    // Currently running synchronous copy, but we can consider async copy in the future.
+    ORT_ENFORCE(context->GetTempSpaceCPUAllocator(&alloc) == Status::OK());
+
+    past_seq_len_cpu_unique = Tensor::Create(DataTypeImpl::GetType<int32_t>(), TensorShape({1}), alloc);
+    past_seq_len_cpu = past_seq_len_cpu_unique.get();
+    CUDA_RETURN_IF_ERROR(cudaMemcpy(
+        past_seq_len_cpu->MutableData<int32_t>(),
+        past_seq_len->Data<int32_t>(),
+        sizeof(int32_t),
+        cudaMemcpyDeviceToHost));
+  }
+
   ORT_RETURN_IF_ERROR(multihead_attention_helper::CheckInputs<Tensor>(query,
                                                                       key,
                                                                       value,
@@ -105,7 +122,7 @@ Status MultiHeadAttention<T>::ComputeInternal(OpKernelContext* context) const {
                                                                       relative_position_bias,
                                                                       past_key,
                                                                       past_value,
-                                                                      past_seq_len,  // past_seq_len
+                                                                      past_seq_len_cpu,  // past_seq_len
                                                                       &parameters,
                                                                       num_heads_,
                                                                       mask_filter_value_,
@@ -130,7 +147,7 @@ Status MultiHeadAttention<T>::ComputeInternal(OpKernelContext* context) const {
   Tensor* attn_probs = context->Output(3, attn_probs_shape);
 
 
-  size_t out_sequence_length = parameters.past_present_share_buffer ? parameters.max_sequence_length : parameters.total_sequence_length;
+  int out_sequence_length = parameters.past_present_share_buffer ? parameters.max_sequence_length : parameters.total_sequence_length;
   std::vector<int64_t> present_dims{
       parameters.batch_size, parameters.num_heads, out_sequence_length, parameters.head_size};
   TensorShape present_shape(present_dims);
