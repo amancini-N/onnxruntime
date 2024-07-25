@@ -171,7 +171,7 @@ class ONNXQuantizer(BaseQuantizer):
             else:
                 kv = attribute_to_kwarg(attr)
             kwargs.update(kv)
-        return onnx.helper.make_node(node.op_type, node.input, node.output, name=node.name, **kwargs)
+        return onnx.helper.make_node(node.op_type, node.input, node.output, name=node.name, domain=node.domain, **kwargs)
 
     def has_QDQ_nodes(self):  # noqa: N802
         """

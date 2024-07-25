@@ -157,7 +157,7 @@ class MatMulBnb4Quantizer:
                         kv = attribute_to_kwarg(attr)
                     kwargs.update(kv)
                 node = onnx.helper.make_node(  # noqa: PLW2901
-                    node.op_type, node.input, node.output, name=node.name, **kwargs
+                    node.op_type, node.input, node.output, name=node.name, domain=node.domain, **kwargs
                 )
 
             new_nodes.append(self._bnb4_matmul_node_weight(node, graph_stack))

@@ -524,7 +524,7 @@ class MatMul4BitsQuantizer:
                         kv = attribute_to_kwarg(attr)
                     kwargs.update(kv)
                 node = onnx.helper.make_node(  # noqa: PLW2901
-                    node.op_type, node.input, node.output, name=node.name, **kwargs
+                    node.op_type, node.input, node.output, name=node.name, domain=node.domain, **kwargs
                 )
             out_node = None
             if node.name in self.nodes_to_exclude:
