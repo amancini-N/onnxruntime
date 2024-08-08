@@ -31,6 +31,23 @@ void MinLengthLogitsProcessor<T>::Process(const ISequences* sequences,
 }
 
 template <typename T>
+MaxLengthLogitsProcessor<T>::MaxLengthLogitsProcessor(int max_length, int eos_token_id)
+    : max_length_(max_length), eos_token_id_(eos_token_id) {}
+
+template <typename T>
+void MaxLengthLogitsProcessor<T>::Process(const ISequences* sequences,
+                                          NextTokenScores<T>& next_token_scores) {
+  // We have to emit EOS on the last possible position.
+  if (sequences->GetSequenceLength() >= max_length_ - 1) {
+    for (int i = 0; i < next_token_scores.vocab_size; i++) {
+      if (i != eos_token_id_) {
+        next_token_scores.SetScore(i, std::numeric_limits<T>::lowest());
+      }
+    }
+  }
+}
+
+template <typename T>
 RepetitionPenaltyLogitsProcessor<T>::RepetitionPenaltyLogitsProcessor(float penalty) : penalty_(penalty) {
 }
 

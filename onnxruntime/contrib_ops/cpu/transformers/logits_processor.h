@@ -67,6 +67,19 @@ class MinLengthLogitsProcessor : public ILogitsProcessor<T> {
 };
 
 template <typename T>
+class MaxLengthLogitsProcessor : public ILogitsProcessor<T> {
+ public:
+  MaxLengthLogitsProcessor(int max_length, int eos_token_id);
+
+  void Process(const ISequences* sequences,
+               NextTokenScores<T>& next_token_scores) override;
+
+ private:
+  int max_length_;
+  int eos_token_id_;
+};
+
+template <typename T>
 class RepetitionPenaltyLogitsProcessor : public ILogitsProcessor<T> {
  public:
   RepetitionPenaltyLogitsProcessor(float penalty);
@@ -336,6 +349,12 @@ class LogitsProcessorList : public ILogitsProcessorList {
       processor_list_.push_back(min_length_processor_.get());
     }
 
+    if (parameters.max_length > 0) {
+      max_length_processor_ = std::make_unique<MaxLengthLogitsProcessor<float>>(parameters.max_length,
+                                                                                parameters.eos_token_id);
+      processor_list_.push_back(max_length_processor_.get());
+    }
+
     if (parameters.temperature > 0) {
       temperature_processor_ = std::make_unique<TemperatureLogitsProcessor<float>>(parameters.temperature);
       processor_list_.push_back(temperature_processor_.get());
@@ -376,6 +395,7 @@ class LogitsProcessorList : public ILogitsProcessorList {
   std::unique_ptr<VocabMaskLogitsProcessor<float>> vocab_mask_processor_;
   std::unique_ptr<PrefixVocabMaskLogitsProcessor<float>> prefix_vocab_mask_processor_;
   std::unique_ptr<MinLengthLogitsProcessor<float>> min_length_processor_;
+  std::unique_ptr<MaxLengthLogitsProcessor<float>> max_length_processor_;
   std::unique_ptr<TemperatureLogitsProcessor<float>> temperature_processor_;
   std::unique_ptr<PresencePenaltyLogitsProcessor<float>> presence_penalty_processor_;
   std::unique_ptr<TimestampLogitsProcessor<float>> timestamp_processor_;
