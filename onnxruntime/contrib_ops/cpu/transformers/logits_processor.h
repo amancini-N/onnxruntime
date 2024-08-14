@@ -18,12 +18,16 @@ namespace transformers {
 
 template <typename T>
 struct NextTokenScores {
+  // scores = [token_0_beam_0, ..., token_N_beam_0, token_0_beam_1, ..., token_N_beam_1, ... token_N_beam_U]
+  // N => vocab_size
+  // U => batch_beam_size
   gsl::span<T>& scores;
   int batch_beam_size;
   int vocab_size;
 
   gsl::span<T> GetScores(int batch_beam_index) {
     assert(batch_beam_index >= 0 && batch_beam_index < batch_beam_size);
+    // get the scores for all tokens/vocab within one batch_beam.
     return scores.subspan(static_cast<gsl::index>(batch_beam_index) * vocab_size, vocab_size);
   }
 

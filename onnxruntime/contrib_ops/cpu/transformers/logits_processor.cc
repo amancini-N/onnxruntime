@@ -25,6 +25,8 @@ MinLengthLogitsProcessor<T>::MinLengthLogitsProcessor(int min_length, int eos_to
 template <typename T>
 void MinLengthLogitsProcessor<T>::Process(const ISequences* sequences,
                                           NextTokenScores<T>& next_token_scores) {
+  // if we didn't reach yet minimum length
+  // set the eos token score to lowest for each beam
   if (sequences->GetSequenceLength() < min_length_) {
     next_token_scores.SetScore(eos_token_id_, std::numeric_limits<T>::lowest());
   }
@@ -38,6 +40,8 @@ template <typename T>
 void MaxLengthLogitsProcessor<T>::Process(const ISequences* sequences,
                                           NextTokenScores<T>& next_token_scores) {
   // We have to emit EOS on the last possible position.
+  // if we have reached the max length
+  // set scores for all tokens but eos to lowest for each beam
   if (sequences->GetSequenceLength() >= max_length_ - 1) {
     for (int i = 0; i < next_token_scores.vocab_size; i++) {
       if (i != eos_token_id_) {
