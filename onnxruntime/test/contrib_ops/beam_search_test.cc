@@ -549,6 +549,59 @@ TEST(MaxLengthLogitsProcessor, MaxLengthNotReached) {
     ASSERT_NEAR(next_token_scores.GetScores(0)[0], 0.1, 0.0001);
 }
 
+TEST(FSALogitsProcessor, MaxLengthNotReached) {
+    int max_length = 10;  // bigger than sequences length
+    int eos_token_id = 0;
+    std::vector<float> next_token_scores_vector = {0.1, 0.2, 0.3};
+    int batch_beam_size = 1;
+    int vocab_size = 3;
+
+    std::vector<int32_t> first_token_vector = {1};
+    std::vector<int32_t> second_token_vector = {2};
+    std::vector<std::vector<int32_t>> token_vectors = {first_token_vector, second_token_vector};
+
+    gsl::span<float> cpu_next_token_scores_span(gsl::make_span(
+        next_token_scores_vector
+        ));
+    onnxruntime::contrib::transformers::NextTokenScores<float> next_token_scores({
+        cpu_next_token_scores_span,
+        batch_beam_size,
+        vocab_size
+        });
+
+// template <typename T>
+// class FSALogitsProcessor : public ILogitsProcessor<T> {
+//  public:
+//   FSALogitsProcessor(
+//     int eos_token_id
+//     const gsl::span<const int32_t>& constraints,
+//     const gsl::multi_span<const int32_t>& grammar,
+//     );
+
+//   void Process(const ISequences* sequences,
+//                NextTokenScores<T>& next_token_scores) override;
+
+//  private:
+//   gsl::span<const int32_t> constraints_;
+//   gsl::multi_span<const int32_t> grammar_;
+//   int eos_token_id_;
+// };
+
+    onnxruntime::contrib::transformers::FSALogitsProcessor<float> max_length_logit_processor(
+        eos_token_id,
+        gsl::span<const int32_t>(),
+        gsl::multi_span<const int32_t>()
+        );
+    callLogitProcessor(
+        batch_beam_size,
+        next_token_scores,
+        token_vectors,
+        &max_length_logit_processor
+        );
+
+    ASSERT_NEAR(next_token_scores.GetScores(0)[0], 0.1, 0.0001);
+}
+
 
 TEST(JeroenTest, JeroenSeedTest) {  // Just here to verify tests are discovered, not a real test
   ASSERT_EQ(8211, 8211);

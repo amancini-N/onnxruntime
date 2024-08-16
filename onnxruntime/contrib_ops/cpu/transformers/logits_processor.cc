@@ -37,7 +37,8 @@ MaxLengthLogitsProcessor<T>::MaxLengthLogitsProcessor(int max_length, int eos_to
 
 template <typename T>
 void MaxLengthLogitsProcessor<T>::Process(const ISequences* sequences,
-                                          NextTokenScores<T>& next_token_scores) {
+                                          NextTokenScores<T>& next_token_scores
+                                          ) {
   // We have to emit EOS on the last possible position.
   // if we have reached the max length
   // set scores for all tokens but eos to lowest for each beam
@@ -207,6 +208,20 @@ void PresencePenaltyLogitsProcessor<T>::Process(const ISequences*,
     *p -= presence_mask_[i] * presence_penalty_;
   }
 }
+
+template <typename T>
+FSALogitsProcessor<T>::FSALogitsProcessor(int eos_token_id, const gsl::span<const int32_t>& constraints,
+                                         const gsl::multi_span<const int32_t>& grammar)
+    : eos_token_id_(eos_token_id), constraints_(constraints), grammar_(grammar) {
+      /// some preprocessing
+    }
+
+template <typename T>
+void FSALogitsProcessor<T>::Process(const ISequences* sequences,
+                                          NextTokenScores<T>& next_token_scores) {
+    // some processing
+}
+
 
 void LogitsProcessorList::Init(const BeamSearchParameters& parameters) {
   LogitsProcessorInitImpl<BeamSearchParameters>(parameters);

@@ -173,6 +173,26 @@ class PresencePenaltyLogitsProcessor : public ILogitsProcessor<T> {
   float presence_penalty_;
 };
 
+
+template <typename T>
+class FSALogitsProcessor : public ILogitsProcessor<T> {
+ public:
+  FSALogitsProcessor(
+    int eos_token_id
+    const gsl::span<const int32_t>& constraints,
+    const gsl::multi_span<const int32_t>& grammar,
+    );
+
+  void Process(const ISequences* sequences,
+               NextTokenScores<T>& next_token_scores) override;
+
+ private:
+  gsl::span<const int32_t> constraints_;
+  gsl::multi_span<const int32_t> grammar_;
+  int eos_token_id_;
+};
+
+
 template <typename T>
 class TimestampLogitsProcessor : public ILogitsProcessor<T> {
  public:
