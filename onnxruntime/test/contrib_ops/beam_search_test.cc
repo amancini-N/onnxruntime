@@ -403,12 +403,12 @@ TEST(MinLengthLogitsProcessor, InitTest) {
                                                                                              eos_token_id);
 }
 
-void callMinLengthLogitProcessor(
-    int min_length,
+template <typename T>
+void callLogitProcessor(
     int batch_beam_size,
     onnxruntime::contrib::transformers::NextTokenScores<float> next_token_scores,
     std::vector<std::vector<int32_t>> token_vectors,
-    int eos_token_id
+    onnxruntime::contrib::transformers::ILogitsProcessor<T>* logit_processor
 ) {
     int max_sequence_length = 100;
     // buffer is filled with 0 and has size batch_beam_size * max_length * 2
@@ -427,13 +427,11 @@ void callMinLengthLogitProcessor(
         sequences.AppendNextTokenToSequences(token_span);
     }
 
-    // init & call
-    onnxruntime::contrib::transformers::MinLengthLogitsProcessor<float> min_length_logit_processor(min_length,
-                                                                                             eos_token_id);
-    min_length_logit_processor.Process(sequences_pointer, next_token_scores);
+    logit_processor->Process(sequences_pointer, next_token_scores);
 }
 
-TEST(MinLengthLogitsProcessor, MinLengthNotReachedOneBeamTest) {
+
+TEST(MinLengthLogitsProcessor, MinLengthNotReached) {
     int min_length = 3;  // bigger than sequences length
     int eos_token_id = 0;
     std::vector<float> next_token_scores_vector = {0.5, 0.2, 0.3};
@@ -447,12 +445,13 @@ TEST(MinLengthLogitsProcessor, MinLengthNotReachedOneBeamTest) {
     onnxruntime::contrib::transformers::NextTokenScores<float> next_token_scores({
         cpu_next_token_scores_span, batch_beam_size, vocab_size});
 
-    callMinLengthLogitProcessor(
-        min_length,
+    onnxruntime::contrib::transformers::MinLengthLogitsProcessor<float> min_length_logit_processor(min_length,
+                                                                                             eos_token_id);
+    callLogitProcessor(
         batch_beam_size,
         next_token_scores,
         token_vectors,
-        eos_token_id=eos_token_id
+        &min_length_logit_processor
         );
 
     // we expect the eos_token_id to be set to lowest value
@@ -460,7 +459,7 @@ TEST(MinLengthLogitsProcessor, MinLengthNotReachedOneBeamTest) {
     ASSERT_EQ(next_token_scores.GetScores(0)[0], std::numeric_limits<float>::lowest());
 }
 
-TEST(MinLengthLogitsProcessor, MinLengthReachedOneBeamTest) {
+TEST(MinLengthLogitsProcessor, MinLengthReached) {
     int min_length = 1;  // bigger than sequences length
     int eos_token_id = 0;
     std::vector<float> next_token_scores_vector = {0.1, 0.2, 0.3};
@@ -477,18 +476,78 @@ TEST(MinLengthLogitsProcessor, MinLengthReachedOneBeamTest) {
     onnxruntime::contrib::transformers::NextTokenScores<float> next_token_scores({
         cpu_next_token_scores_span, batch_beam_size, vocab_size});
 
-    callMinLengthLogitProcessor(
-        min_length,
+    onnxruntime::contrib::transformers::MinLengthLogitsProcessor<float> min_length_logit_processor(min_length,
+                                                                                             eos_token_id);
+    callLogitProcessor(
         batch_beam_size,
         next_token_scores,
         token_vectors,
-        eos_token_id
+        &min_length_logit_processor
         );
 
     ASSERT_NEAR(next_token_scores.GetScores(0)[0], 0.1, 0.0001);
 }
 
 
+TEST(MaxLengthLogitsProcessor, MaxLengthReached) {
+    int max_length = 1;  // bigger than sequences length
+    int eos_token_id = 0;
+    std::vector<float> next_token_scores_vector = {0.1, 0.2, 0.3};
+    int batch_beam_size = 1;
+    int vocab_size = 3;
+
+    std::vector<int32_t> first_token_vector = {1};
+    std::vector<int32_t> second_token_vector = {2};
+    std::vector<std::vector<int32_t>> token_vectors = {first_token_vector, second_token_vector};
+
+    gsl::span<float> cpu_next_token_scores_span(gsl::make_span(
+        next_token_scores_vector
+        ));
+    onnxruntime::contrib::transformers::NextTokenScores<float> next_token_scores({
+        cpu_next_token_scores_span, batch_beam_size, vocab_size});
+
+    onnxruntime::contrib::transformers::MaxLengthLogitsProcessor<float> max_length_logit_processor(max_length,
+                                                                                             eos_token_id);
+    callLogitProcessor(
+        batch_beam_size,
+        next_token_scores,
+        token_vectors,
+        &max_length_logit_processor
+        );
+
+    ASSERT_EQ(next_token_scores.GetScores(0)[1], std::numeric_limits<float>::lowest());
+    ASSERT_EQ(next_token_scores.GetScores(0)[2], std::numeric_limits<float>::lowest());
+}
+
+
+TEST(MaxLengthLogitsProcessor, MaxLengthNotReached) {
+    int max_length = 10;  // bigger than sequences length
+    int eos_token_id = 0;
+    std::vector<float> next_token_scores_vector = {0.1, 0.2, 0.3};
+    int batch_beam_size = 1;
+    int vocab_size = 3;
+
+    std::vector<int32_t> first_token_vector = {1};
+    std::vector<int32_t> second_token_vector = {2};
+    std::vector<std::vector<int32_t>> token_vectors = {first_token_vector, second_token_vector};
+
+    gsl::span<float> cpu_next_token_scores_span(gsl::make_span(
+        next_token_scores_vector
+        ));
+    onnxruntime::contrib::transformers::NextTokenScores<float> next_token_scores({
+        cpu_next_token_scores_span, batch_beam_size, vocab_size});
+
+    onnxruntime::contrib::transformers::MaxLengthLogitsProcessor<float> max_length_logit_processor(max_length,
+                                                                                             eos_token_id);
+    callLogitProcessor(
+        batch_beam_size,
+        next_token_scores,
+        token_vectors,
+        &max_length_logit_processor
+        );
+
+    ASSERT_NEAR(next_token_scores.GetScores(0)[0], 0.1, 0.0001);
+}
 
 
 TEST(JeroenTest, JeroenSeedTest) {  // Just here to verify tests are discovered, not a real test
