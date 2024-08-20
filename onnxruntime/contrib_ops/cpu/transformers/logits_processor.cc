@@ -210,14 +210,17 @@ void PresencePenaltyLogitsProcessor<T>::Process(const ISequences*,
 }
 
 template <typename T>
-FSALogitsProcessor<T>::FSALogitsProcessor(int eos_token_id, const gsl::span<const int32_t>& constraints,
-                                         const gsl::multi_span<const int32_t>& grammar)
-    : eos_token_id_(eos_token_id), constraints_(constraints), grammar_(grammar) {
+SequentialConstraintsFSALogitsProcessor<T>::SequentialConstraintsFSALogitsProcessor(
+  const gsl::span<const int32_t>& constraints,
+  const gsl::span<const int32_t>& grammar,
+  int eos_token_id
+  )
+    : constraints_(constraints), grammar_(grammar), eos_token_id_(eos_token_id) {
       /// some preprocessing
     }
 
 template <typename T>
-void FSALogitsProcessor<T>::Process(const ISequences* sequences,
+void SequentialConstraintsFSALogitsProcessor<T>::Process(const ISequences* sequences,
                                           NextTokenScores<T>& next_token_scores) {
     // some processing
 }
