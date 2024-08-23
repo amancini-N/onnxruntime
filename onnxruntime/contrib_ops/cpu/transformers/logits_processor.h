@@ -32,12 +32,29 @@ struct NextTokenScores {
   }
 
   void SetScore(int token_id, T score) {
+    // this sets the next_token_score for ALL batch_beams to the same score
+    // A bit weird/misleading?
+    // would at least rename to something like "SetScoreForAllBeams"
     assert(token_id >= 0 && token_id < vocab_size);
     for (int i = 0; i < batch_beam_size; i++) {
       scores[static_cast<gsl::index>(i) * vocab_size + token_id] = score;
     }
   }
+
+  void ApplyMask(int batch_beam_id, gsl::span<int32_t> mask) {
+    assert(batch_beam_id >= 0 && batch_beam_id < batch_beam_size);
+    assert(scores.size() == vocab_size);
+    if (mask.size() != vocab_size) {
+      throw std::runtime_error("Mask size does not match vocab size");
+    }
+    for (int i = 0; i < vocab_size; i++) {
+      if (mask[i] == 1) {
+        scores[batch_beam_id * vocab_size + i] = std::numeric_limits<T>::lowest();
+      }
+    }
+  }
 };
+
 
 #ifdef DEBUG_GENERATION
 template <typename T>
@@ -175,21 +192,45 @@ class PresencePenaltyLogitsProcessor : public ILogitsProcessor<T> {
 
 
 template <typename T>
-class FSALogitsProcessor : public ILogitsProcessor<T> {
+class SequentialConstraintsFSALogitsProcessor : public ILogitsProcessor<T> {
+  // This class is an FSA, but with following semantics:
+  // Unless max_length is reached:
+  // We apply the following:
+  //       * Suppress all tokens (not just the ones in the constraint list)
+  //       * Except the next token in the constraint list.
+  //       * Augment allowed tokens based on the grammar rules, the last token determines the grammar rule with allowed tokens
+  //       * the rules can contain:
+  //          i. vocab token id -> unsupress this token
+  //          ii. -1: filler value, can be ignored
+  //          iii. -2: <ANY> token -> unsuppress all tokens except ones in constraint list
+  //          iv.  -3: <NEXT_CONSTRAINT TOKEN>. -> allow next token
+  //                   -> only for formal reasons added, can be ignored as this is already represented in the rules
+
+
  public:
-  FSALogitsProcessor(
-    int eos_token_id
+  SequentialConstraintsFSALogitsProcessor(
     const gsl::span<const int32_t>& constraints,
-    const gsl::multi_span<const int32_t>& grammar,
+    const gsl::span<const int32_t>& grammar,
+    int batch_beam_size,
+    int vocab_size,
+    int max_grammar_rule_length,
+    int eos_token_id,
+    int bos_token_id
     );
 
   void Process(const ISequences* sequences,
                NextTokenScores<T>& next_token_scores) override;
 
  private:
-  gsl::span<const int32_t> constraints_;
-  gsl::multi_span<const int32_t> grammar_;
-  int eos_token_id_;
+  const gsl::span<const int32_t> constraints_;
+  const gsl::span<const int32_t> grammar_;
+  const int batch_beam_size_;
+  const int vocab_size_;
+  const int max_grammar_rule_length_;
+  const int eos_token_id_;
+  const int bos_token_id_;
+  gsl::span<int32_t> next_constraint_indexes_;
+  gsl::span<int32_t> fixed_grammar_mask_span_;
 };
 
 
