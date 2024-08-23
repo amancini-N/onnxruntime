@@ -43,10 +43,9 @@ struct NextTokenScores {
 
   void ApplyMask(int batch_beam_id, gsl::span<int32_t> mask) {
     assert(batch_beam_id >= 0 && batch_beam_id < batch_beam_size);
-    assert(scores.size() == vocab_size);
-    if (mask.size() != vocab_size) {
-      throw std::runtime_error("Mask size does not match vocab size");
-    }
+    // assert(stascores.size() == vocab_size));
+    // but static cast
+    assert(static_cast<int>(mask.size()) == vocab_size);
     for (int i = 0; i < vocab_size; i++) {
       if (mask[i] == 1) {
         scores[batch_beam_id * vocab_size + i] = std::numeric_limits<T>::lowest();

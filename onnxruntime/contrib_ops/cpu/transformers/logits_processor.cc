@@ -227,14 +227,18 @@ SequentialConstraintsFSALogitsProcessor<T>::SequentialConstraintsFSALogitsProces
       eos_token_id_(eos_token_id),
       bos_token_id_(bos_token_id)
      {
-      assert(grammar_.size() == vocab_size_ * max_grammar_rule_length_);
+      assert(static_cast<int>(grammar_.size()) == vocab_size_ * max_grammar_rule_length_);
       next_constraint_indexes_ = gsl::span<int32_t>(new int32_t[batch_beam_size_], batch_beam_size_);
-      std::fill_n(next_constraint_indexes_.begin(), batch_beam_size_, 0);
+      std::fill_n(next_constraint_indexes_.begin(), batch_beam_size_, 0);  // we point indexes to start constraint
 
-      std::vector<int32_t> grammar_mask_vector(vocab_size * vocab_size, 0);
-      gsl::span<int32_t> fixed_grammar_mask_span_(gsl::make_span(
-          grammar_mask_vector
-          ));
+      fixed_grammar_mask_span_ = gsl::span<int32_t>(new int32_t[vocab_size_*vocab_size_], vocab_size_*vocab_size_);
+      std::fill_n(next_constraint_indexes_.begin(), vocab_size_*vocab_size_, 1);  //default all allowed
+
+      // std::vector<int32_t> grammar_mask_vector(vocab_size * vocab_size, 0);
+      // gsl::span<int32_t> fixed_grammar_mask_span_(gsl::make_span(
+      //     grammar_mask_vector
+      //     ));
+      // std::fill_n(fixed_grammar_mask_span_.begin(), batch_beam_size_, 0);
 
       for (int vocab_index = 0; vocab_index < vocab_size; vocab_index++) {
         // now lets fill the fixed_grammar_maks_span by creating first a rule_mask_span
@@ -244,30 +248,30 @@ SequentialConstraintsFSALogitsProcessor<T>::SequentialConstraintsFSALogitsProces
         // target mask
         gsl::span<int32_t> rule_mask_span = gsl::span<int32_t>(new int32_t[vocab_size], vocab_size);
         // // source grammar
-        assert(vocab * max_grammar_rule_length_ + max_grammar_rule_length_ <= grammar_.size());
-        // gsl::span<const int32_t> rule_span = grammar_.subspan(vocab_index * max_grammar_rule_length_, max_grammar_rule_length_);
+        assert(vocab_index * max_grammar_rule_length_ + max_grammar_rule_length_ <= static_cast<int>(grammar_.size()));
+        gsl::span<const int32_t> rule_span = grammar_.subspan(vocab_index * max_grammar_rule_length_, max_grammar_rule_length_);
 
-        // // check if -2 is in the rule_span if so, set all allowed otherwise none allowed
-        // if (std::find(rule_span.begin(), rule_span.end(), -2) != rule_span.end()) {
-        //   std::fill_n(rule_mask_span.begin(), rule_mask_span.size(), 1);
-        // } else {
-        //   std::fill_n(rule_mask_span.begin(), rule_span.size(), 0);
-        // }
-        // // now set all tokens in constraints to 0
-        // for (int j = 0; j < static_cast<int>(constraints.size()); j++) {
-        //   rule_mask_span[constraints[j]] = 0;
-        // }
-        // // now go over the rules, if it contains anything >= 0, set the mask to 1
-        // // in theory we shouldn't allow items in the constraint list/ raise error?
-        // for (int rule_index = 0; rule_index < max_grammar_rule_length_; rule_index++) {
-        //   if (rule_span[rule_index] >= 0) {
-        //     rule_mask_span[rule_span[rule_index]] = 1;
-        //   }
-        // }
-        // // now we put it in the global span
-        // for (int i = 0; i < vocab_size_; i++) {
-        //   fixed_grammar_mask_span_[static_cast<gsl::index>(vocab_index) * vocab_size_ + i] = rule_mask_span[i];
-        // }
+        // check if -2 is in the rule_span if so, set all allowed otherwise none allowed
+        if (std::find(rule_span.begin(), rule_span.end(), -2) != rule_span.end()) {
+          std::fill_n(rule_mask_span.begin(), rule_mask_span.size(), 1);
+        } else {
+          std::fill_n(rule_mask_span.begin(), rule_span.size(), 0);
+        }
+        // now set all tokens in constraints to 0
+        for (int j = 0; j < static_cast<int>(constraints.size()); j++) {
+          rule_mask_span[constraints[j]] = 0;
+        }
+        // now go over the rules, if it contains anything >= 0, set the mask to 1
+        // in theory we shouldn't allow items in the constraint list/ raise error?
+        for (int rule_index = 0; rule_index < max_grammar_rule_length_; rule_index++) {
+          if (rule_span[rule_index] >= 0) {
+            rule_mask_span[rule_span[rule_index]] = 1;
+          }
+        }
+        // now we put it in the global span
+        for (int i = 0; i < vocab_size_; i++) {
+          fixed_grammar_mask_span_[static_cast<gsl::index>(vocab_index) * vocab_size_ + i] = rule_mask_span[i];
+        }
       }
 }
 
@@ -276,48 +280,55 @@ template <typename T>
 void SequentialConstraintsFSALogitsProcessor<T>::Process(const ISequences* sequences,
                                           NextTokenScores<T>& next_token_scores) {
   // not correct implementation, just to fill
-  if (sequences->GetSequenceLength() >= 100) {
-    for (int i = 0; i < next_token_scores.vocab_size; i++) {
-      if (i != eos_token_id_) {
-        next_token_scores.SetScore(i, std::numeric_limits<T>::lowest());
-      }
-    }
-  }
-
-  // this should be implementation
-  // for (int beam_index = 0; beam_index < batch_beam_size_; beam_index++) {
-  //   int next_constraint = constraints_[next_constraint_indexes_[beam_index]];
-  //   gsl::span<const int32_t> sequence = sequences->GetSequence(beam_index);
-
-  //   const int32_t last_token = sequence.back();
-  //   // update pointer if we have hit the next constraint
-  //   // if we were already at the last possible constraint, set to -1
-  //   if (next_constraint == last_token) {
-  //     next_constraint_indexes_[beam_index]++;
-  //     if (next_constraint_indexes_[beam_index] >= static_cast<int>(constraints_.size())) {
-  //       next_constraint_indexes_[beam_index] = -1;
-  //     } else {
-  //       next_constraint = constraints_[next_constraint_indexes_[batch_beam_size_]];
+  // if (sequences->GetSequenceLength() >= 100) {
+  //   for (int i = 0; i < next_token_scores.vocab_size; i++) {
+  //     if (i != eos_token_id_) {
+  //       next_token_scores.SetScore(i, std::numeric_limits<T>::lowest());
   //     }
   //   }
-
-  //   // get fixed grammar mask for last_token
-  //   gsl::span<int32_t> fixed_grammar_mask_span = fixed_grammar_mask_span_.subspan(last_token * vocab_size_, vocab_size_);
-  //   // if the next contstraint = -1, we are at the end and the dynamic_grammar_mask == fixed_grammar_mask_span
-  //   // else we need to update with the next constraint token set to allow ( 1)
-  //   // we do this by copy the fixed grammar mask span into a new (dynamic) span
-  //   // then set the next constraint to 1
-
-  //   gsl::span<int32_t> dynamic_grammar_mask_span = fixed_grammar_mask_span;
-  //   if (next_constraint != -1) {
-  //     // we are not at the end, we need to update the dynamic grammar mask
-  //     gsl::span<int32_t> dynamic_grammar_mask_span = gsl::span<int32_t>(new int32_t[vocab_size_], vocab_size_);
-  //     std::copy(fixed_grammar_mask_span.begin(), fixed_grammar_mask_span.end(), dynamic_grammar_mask_span.begin());
-  //     dynamic_grammar_mask_span[next_constraint] = 1;
-  //   }
-  //   // now we update the next token scores for the beam
-  //   next_token_scores.ApplyMask(beam_index, dynamic_grammar_mask_span);
   // }
+
+  for (int beam_index = 0; beam_index < batch_beam_size_; beam_index++) {
+    int next_constraint = -1;
+    int next_constraint_index = next_constraint_indexes_[beam_index];
+    if( next_constraint_index != -1){
+      // -1 means that we already reached the end of the constraints before
+      next_constraint = constraints_[next_constraint_index];
+    }
+    gsl::span<const int32_t> sequence = sequences->GetSequence(beam_index);
+
+    // get last element of sequence  nd put in last_token
+    int last_token = sequence[sequence.size() - 1];
+    // update pointer and get next_constraint if we have hit the next constraint
+    // if we were already at the last possible constraint, set the pointer to -1 and next_constraint to -1
+    if (next_constraint == last_token) {
+      next_constraint_indexes_[beam_index]++;
+      next_constraint_index = next_constraint_indexes_[beam_index];
+      if (next_constraint_index >= static_cast<int>(constraints_.size())) {
+        next_constraint_indexes_[beam_index] = -1;
+        next_constraint = -1;
+      } else {
+        next_constraint = constraints_[next_constraint_index];
+      }
+    }
+
+    // get fixed grammar mask for last_token
+    gsl::span<int32_t> grammar_mask_last_token = fixed_grammar_mask_span_.subspan(last_token * vocab_size_, vocab_size_);
+    // if the next contstraint = -1, we are at the end and the dynamic_grammar_mask == fixed_grammar_mask_span
+    // else we need to update with the next constraint token set to allow ( 1)
+    // we do this by copy the fixed grammar mask span into a new (dynamic) span
+    // then set the next constraint to 1
+
+    gsl::span<int32_t> dynamic_grammar_mask_span = grammar_mask_last_token;
+    if (next_constraint != -1) {
+      // we are not at the end, we need to update the dynamic grammar mask
+      gsl::span<int32_t> dynamic_grammar_mask_span = gsl::span<int32_t>(new int32_t[vocab_size_], vocab_size_);
+      std::copy(fixed_grammar_mask_span.begin(), grammar_mask_last_token.end(), grammar_mask.last_token.begin());
+      dynamic_grammar_mask_span[next_constraint] = 1;
+    }
+    // now we update the next token scores for the beam
+    next_token_scores.ApplyMask(beam_index, dynamic_grammar_mask_span);
+  }
 }
 
 
