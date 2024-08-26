@@ -212,9 +212,7 @@ class SequentialConstraintsFSALogitsProcessor : public ILogitsProcessor<T> {
     const gsl::span<const int32_t>& grammar,
     int batch_beam_size,
     int vocab_size,
-    int max_grammar_rule_length,
-    int eos_token_id,
-    int bos_token_id
+    int max_grammar_rule_length
     );
 
   void Process(const ISequences* sequences,
@@ -226,8 +224,6 @@ class SequentialConstraintsFSALogitsProcessor : public ILogitsProcessor<T> {
   const int batch_beam_size_;
   const int vocab_size_;
   const int max_grammar_rule_length_;
-  const int eos_token_id_;
-  const int bos_token_id_;
   gsl::span<int32_t> next_constraint_indexes_;
   gsl::span<int32_t> fixed_grammar_mask_span_;
 };

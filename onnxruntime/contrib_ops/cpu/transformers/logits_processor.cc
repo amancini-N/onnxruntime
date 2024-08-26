@@ -216,23 +216,19 @@ SequentialConstraintsFSALogitsProcessor<T>::SequentialConstraintsFSALogitsProces
     const gsl::span<const int32_t>& grammar,
     int batch_beam_size,
     int max_grammar_rule_length,
-    int vocab_size,
-    int eos_token_id,
-    int bos_token_id
+    int vocab_size
 )   : constraints_(constraints),
       grammar_(grammar),
       batch_beam_size_(batch_beam_size),
       vocab_size_(vocab_size),
-      max_grammar_rule_length_(max_grammar_rule_length),
-      eos_token_id_(eos_token_id),
-      bos_token_id_(bos_token_id)
+      max_grammar_rule_length_(max_grammar_rule_length)
      {
       assert(static_cast<int>(grammar_.size()) == vocab_size_ * max_grammar_rule_length_);
       next_constraint_indexes_ = gsl::span<int32_t>(new int32_t[batch_beam_size_], batch_beam_size_);
       std::fill_n(next_constraint_indexes_.begin(), batch_beam_size_, 0);  // we point indexes to start constraint
 
       fixed_grammar_mask_span_ = gsl::span<int32_t>(new int32_t[vocab_size_*vocab_size_], vocab_size_*vocab_size_);
-      std::fill_n(next_constraint_indexes_.begin(), vocab_size_*vocab_size_, 1);  //default all allowed
+      std::fill_n(fixed_grammar_mask_span_.begin(), vocab_size_*vocab_size_, 1);  //default all allowed
 
       // std::vector<int32_t> grammar_mask_vector(vocab_size * vocab_size, 0);
       // gsl::span<int32_t> fixed_grammar_mask_span_(gsl::make_span(
@@ -279,14 +275,6 @@ SequentialConstraintsFSALogitsProcessor<T>::SequentialConstraintsFSALogitsProces
 template <typename T>
 void SequentialConstraintsFSALogitsProcessor<T>::Process(const ISequences* sequences,
                                           NextTokenScores<T>& next_token_scores) {
-  // not correct implementation, just to fill
-  // if (sequences->GetSequenceLength() >= 100) {
-  //   for (int i = 0; i < next_token_scores.vocab_size; i++) {
-  //     if (i != eos_token_id_) {
-  //       next_token_scores.SetScore(i, std::numeric_limits<T>::lowest());
-  //     }
-  //   }
-  // }
 
   for (int beam_index = 0; beam_index < batch_beam_size_; beam_index++) {
     int next_constraint = -1;
@@ -323,7 +311,7 @@ void SequentialConstraintsFSALogitsProcessor<T>::Process(const ISequences* seque
     if (next_constraint != -1) {
       // we are not at the end, we need to update the dynamic grammar mask
       gsl::span<int32_t> dynamic_grammar_mask_span = gsl::span<int32_t>(new int32_t[vocab_size_], vocab_size_);
-      std::copy(fixed_grammar_mask_span.begin(), grammar_mask_last_token.end(), grammar_mask.last_token.begin());
+      std::copy(grammar_mask_last_token.begin(), grammar_mask_last_token.end(), dynamic_grammar_mask_span.begin());
       dynamic_grammar_mask_span[next_constraint] = 1;
     }
     // now we update the next token scores for the beam
@@ -356,6 +344,10 @@ void LogitsProcessorList::Process(const ISequences* sequences,
     processor_list_[i]->Process(sequences, input_scores);
   }
 }
+
+template class MinLengthLogitsProcessor<float>;
+template class MaxLengthLogitsProcessor<float>;
+template class SequentialConstraintsFSALogitsProcessor<float>;
 
 }  // namespace transformers
 }  // namespace contrib
