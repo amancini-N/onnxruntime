@@ -478,13 +478,8 @@ TEST(SequentialConstraintsFSALogitsProcessor, MultiBeamAnyRuleDifferentConstrain
     //  second beam reached only one constraint, so second constraint token (third token) is still allowed
     ASSERT_NEAR(result_scores_vector[1][0], 0.1, 0.0001);
     ASSERT_EQ(result_scores_vector[1][1], std::numeric_limits<float>::lowest());
-    ASSERT_NEAR(result_scores_vector[2][0], 0.3, 0.0001);
+    ASSERT_NEAR(result_scores_vector[1][2], 0.3, 0.0001);
 }
-
-
-TEST(SequentialConstraintsFSALogitsProcessor, JeroenSeedTest) {  // Just here to verify tests are discovered, not a real test
-  ASSERT_EQ(8211, 8211);
-}  // keeping at end because seems tests output gets trunated sometimes
 
 
 }
