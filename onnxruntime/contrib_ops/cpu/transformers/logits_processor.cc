@@ -228,13 +228,8 @@ SequentialConstraintsFSALogitsProcessor<T>::SequentialConstraintsFSALogitsProces
       std::fill_n(next_constraint_indexes_.begin(), batch_beam_size_, 0);  // we point indexes to start constraint
 
       fixed_grammar_mask_span_ = gsl::span<int32_t>(new int32_t[vocab_size_*vocab_size_], vocab_size_*vocab_size_);
-      std::fill_n(fixed_grammar_mask_span_.begin(), vocab_size_*vocab_size_, 1);  //default all allowed
+      std::fill_n(fixed_grammar_mask_span_.begin(), vocab_size_*vocab_size_, ALLOWED_);  //default all allowed
 
-      // std::vector<int32_t> grammar_mask_vector(vocab_size * vocab_size, 0);
-      // gsl::span<int32_t> fixed_grammar_mask_span_(gsl::make_span(
-      //     grammar_mask_vector
-      //     ));
-      // std::fill_n(fixed_grammar_mask_span_.begin(), batch_beam_size_, 0);
 
       for (int vocab_index = 0; vocab_index < vocab_size; vocab_index++) {
         // now lets fill the fixed_grammar_maks_span by creating first a rule_mask_span
@@ -248,20 +243,20 @@ SequentialConstraintsFSALogitsProcessor<T>::SequentialConstraintsFSALogitsProces
         gsl::span<const int32_t> rule_span = grammar_.subspan(vocab_index * max_grammar_rule_length_, max_grammar_rule_length_);
 
         // check if -2 is in the rule_span if so, set all allowed otherwise none allowed
-        if (std::find(rule_span.begin(), rule_span.end(), -2) != rule_span.end()) {
-          std::fill_n(rule_mask_span.begin(), rule_mask_span.size(), 1);
+        if (std::find(rule_span.begin(), rule_span.end(), ANY_RULE_) != rule_span.end()) {
+          std::fill_n(rule_mask_span.begin(), rule_mask_span.size(), ALLOWED_);
         } else {
-          std::fill_n(rule_mask_span.begin(), rule_span.size(), 0);
+          std::fill_n(rule_mask_span.begin(), rule_span.size(), MASKED_);
         }
         // now set all tokens in constraints to 0
         for (int j = 0; j < static_cast<int>(constraints.size()); j++) {
-          rule_mask_span[constraints[j]] = 0;
+          rule_mask_span[constraints[j]] = MASKED_;
         }
         // now go over the rules, if it contains anything >= 0, set the mask to 1
         // in theory we shouldn't allow items in the constraint list/ raise error?
         for (int rule_index = 0; rule_index < max_grammar_rule_length_; rule_index++) {
           if (rule_span[rule_index] >= 0) {
-            rule_mask_span[rule_span[rule_index]] = 1;
+            rule_mask_span[rule_span[rule_index]] = ALLOWED_;
           }
         }
         // now we put it in the global span
@@ -307,15 +302,16 @@ void SequentialConstraintsFSALogitsProcessor<T>::Process(const ISequences* seque
     // we do this by copy the fixed grammar mask span into a new (dynamic) span
     // then set the next constraint to 1
 
-    gsl::span<int32_t> dynamic_grammar_mask_span = grammar_mask_last_token;
+    gsl::span<int32_t> dynamic_grammar_mask_span = gsl::span<int32_t>(new int32_t[vocab_size_], vocab_size_);
+    std::copy(grammar_mask_last_token.begin(), grammar_mask_last_token.end(), dynamic_grammar_mask_span.begin());
     if (next_constraint != -1) {
       // we are not at the end, we need to update the dynamic grammar mask
-      gsl::span<int32_t> dynamic_grammar_mask_span = gsl::span<int32_t>(new int32_t[vocab_size_], vocab_size_);
-      std::copy(grammar_mask_last_token.begin(), grammar_mask_last_token.end(), dynamic_grammar_mask_span.begin());
-      dynamic_grammar_mask_span[next_constraint] = 1;
+      dynamic_grammar_mask_span[next_constraint] = ALLOWED_;
+      // assert this is now set to 1
+      assert(dynamic_grammar_mask_span[next_constraint] == ALLOWED_);
     }
     // now we update the next token scores for the beam
-    next_token_scores.ApplyMask(beam_index, dynamic_grammar_mask_span);
+    next_token_scores.ApplyMask(beam_index, dynamic_grammar_mask_span, MASKED_);
   }
 }
 

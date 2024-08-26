@@ -41,13 +41,13 @@ struct NextTokenScores {
     }
   }
 
-  void ApplyMask(int batch_beam_id, gsl::span<int32_t> mask) {
+  void ApplyMask(int batch_beam_id, gsl::span<int32_t> mask, int32_t mask_value=1) {
     assert(batch_beam_id >= 0 && batch_beam_id < batch_beam_size);
     // assert(stascores.size() == vocab_size));
     // but static cast
     assert(static_cast<int>(mask.size()) == vocab_size);
     for (int i = 0; i < vocab_size; i++) {
-      if (mask[i] == 1) {
+      if (mask[i] == mask_value) {
         scores[batch_beam_id * vocab_size + i] = std::numeric_limits<T>::lowest();
       }
     }
@@ -205,7 +205,6 @@ class SequentialConstraintsFSALogitsProcessor : public ILogitsProcessor<T> {
   //          iv.  -3: <NEXT_CONSTRAINT TOKEN>. -> allow next token
   //                   -> only for formal reasons added, can be ignored as this is already represented in the rules
 
-
  public:
   SequentialConstraintsFSALogitsProcessor(
     const gsl::span<const int32_t>& constraints,
@@ -219,6 +218,9 @@ class SequentialConstraintsFSALogitsProcessor : public ILogitsProcessor<T> {
                NextTokenScores<T>& next_token_scores) override;
 
  private:
+  constexpr static int32_t MASKED_ = 1;
+  constexpr static int32_t ALLOWED_ = 0;
+  constexpr static int32_t ANY_RULE_ = -2;
   const gsl::span<const int32_t> constraints_;
   const gsl::span<const int32_t> grammar_;
   const int batch_beam_size_;
