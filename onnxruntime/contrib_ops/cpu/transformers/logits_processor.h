@@ -94,13 +94,18 @@ class RepetitionPenaltyLogitsProcessor : public ILogitsProcessor<T> {
 template <typename T>
 class NoRepeatNGramLogitsProcessor : public ILogitsProcessor<T> {
  public:
-  NoRepeatNGramLogitsProcessor(int ngram_size);
+  NoRepeatNGramLogitsProcessor(std::vector<int> ngram_size, int ngram_history_a, int ngram_history_b, int ngram_format_mode, std::vector<int> ngram_format_tokens, int ngram_format_tokens_n_exclusions, int ngram_format_tokens_max_length);
 
   void Process(const ISequences* sequences,
                NextTokenScores<T>& next_token_scores) override;
 
  private:
-  int ngram_size_;
+  std::vector<int> ngram_size_;
+  std::vector<int> history_lengths_;
+  int format_mode_;
+  std::vector<int> format_tokens_;
+  int format_tokens_num_exclusions_;
+  int format_tokens_max_length_;
 };
 
 template <typename T>
@@ -325,9 +330,9 @@ class LogitsProcessorList : public ILogitsProcessorList {
       processor_list_.push_back(repetition_penalty_processor_.get());
     }
 
-    if (parameters.no_repeat_ngram_size > 0) {
+    if (parameters.no_repeat_ngram_size.size() > 0) {
       no_repeat_ngram_processor_ = std::make_unique<
-          NoRepeatNGramLogitsProcessor<float>>(parameters.no_repeat_ngram_size);
+          NoRepeatNGramLogitsProcessor<float>>(parameters.no_repeat_ngram_size, parameters.no_repeat_ngram_history_a, parameters.no_repeat_ngram_history_b, parameters.no_repeat_ngram_format_mode, parameters.no_repeat_ngram_format_tokens, parameters.no_repeat_ngram_format_tokens_num_exclusions, parameters.no_repeat_ngram_format_tokens_max_exclusion_length);
       processor_list_.push_back(no_repeat_ngram_processor_.get());
     }
 

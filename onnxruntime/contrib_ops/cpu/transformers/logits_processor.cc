@@ -76,39 +76,67 @@ void RepetitionPenaltyLogitsProcessor<T>::Process(const ISequences* sequences,
 }
 
 template <typename T>
-NoRepeatNGramLogitsProcessor<T>::NoRepeatNGramLogitsProcessor(int ngram_size) : ngram_size_(ngram_size) {
+NoRepeatNGramLogitsProcessor<T>::NoRepeatNGramLogitsProcessor(
+  std::vector<int> ngram_size, int ngram_history_a, int ngram_history_b, int ngram_format_mode,
+  std::vector<int> ngram_format_tokens, int ngram_format_tokens_n_exclusions, int ngram_format_tokens_max_length
+  ) : ngram_size_(ngram_size), format_mode_(ngram_format_mode), format_tokens_(ngram_format_tokens),
+      format_tokens_num_exclusions_(ngram_format_tokens_n_exclusions), format_tokens_max_length_(ngram_format_tokens_max_length) {
+  history_lengths_.resize(ngram_size.size());
+  for (unsigned int i = 0; i < ngram_size.size(); i++) {
+    history_lengths_[i] = ngram_history_a * ngram_size[i] + ngram_history_b;
+  }
 }
 
 template <typename T>
 void NoRepeatNGramLogitsProcessor<T>::Process(const ISequences* sequences,
                                               NextTokenScores<T>& next_token_scores) {
-  if (ngram_size_ == 0 || ngram_size_ > sequences->GetSequenceLength()) {
-    return;
-  }
 
-  const gsl::index prefix_length = static_cast<gsl::index>(ngram_size_) - 1;
   int batch_beam_size = next_token_scores.batch_beam_size;
+  int config_length = static_cast<int>(ngram_size_.size());
+  for (int i = 0; i < config_length; i++) {
+    int ngram = ngram_size_[i];
+    if (ngram == 0 || ngram >= sequences->GetSequenceLength()) {
+      continue;
+    }
+    int history_length = history_lengths_[i];
 
-  for (int i = 0; i < batch_beam_size; i++) {
-    gsl::span<T> beam_token_scores = next_token_scores.GetScores(i);
-    gsl::span<const int32_t> sequence = sequences->GetSequence(i);
+    gsl::index prefix_length = static_cast<gsl::index>(ngram) - 1;
+    // We assume history_length is sorted
+    if (i > 0) {
+      int prefix_to_increase = history_lengths_[i - 1] - ngram + 1;
+      prefix_length += prefix_to_increase;
+    }
 
-    gsl::span<const int32_t> prefix = sequence.subspan(sequence.size() - prefix_length);
-    ORT_ENFORCE(prefix.size() == narrow<size_t>(prefix_length));
+    for (int i = 0; i < batch_beam_size; i++) {
+      gsl::span<T> beam_token_scores = next_token_scores.GetScores(i);
+      gsl::span<const int32_t> sequence = sequences->GetSequence(i);
+      const gsl::index seq_len = sequence.size();
+      if (seq_len > history_length && history_length > 0) {
+        sequence = sequence.subspan(seq_len - history_length);
+        prefix_length += history_length - seq_len;
+      }
 
-    std::unordered_set<int32_t> blocked_word_ids;
-    for (int j = 0; j <= static_cast<int>(sequence.size()) - ngram_size_; j++) {
-      // Here we use naive algorithm for matching. The complexity is O(batch_beam_size * ngram_size * sequence_length)
-      // TODO(tianleiwu): build N-Gram index (hash table with prefix of length NGram - 1 as key,
-      //                  and list of last word of NGram as value) for fast matching.
-      if (ngram_size_ == 1 || SpanEq(prefix, sequence.subspan(j, prefix_length))) {
-        blocked_word_ids.insert(sequence[static_cast<gsl::index>(j) + prefix_length]);
+      gsl::span<const int32_t> prefix = sequence.subspan(seq_len - prefix_length);
+      ORT_ENFORCE(prefix.size() == narrow<size_t>(prefix_length));
+
+      std::unordered_set<int32_t> blocked_word_ids;
+      for (int j = 0; j <= static_cast<int>(sequence.size()) - ngram; j++) {
+        // Here we use naive algorithm for matching. The complexity is O(batch_beam_size * ngram_size * sequence_length)
+        // TODO(tianleiwu): build N-Gram index (hash table with prefix of length NGram - 1 as key,
+        //                  and list of last word of NGram as value) for fast matching.
+        if (ngram == 1 || SpanEq(prefix, sequence.subspan(j, prefix_length))) {
+          blocked_word_ids.insert(sequence[static_cast<gsl::index>(j) + prefix_length]);
+        }
+      }
+
+      for (const int32_t word_id : blocked_word_ids) {
+        beam_token_scores[word_id] = std::numeric_limits<T>::lowest();
       }
     }
 
-    for (const int32_t word_id : blocked_word_ids) {
-      beam_token_scores[word_id] = std::numeric_limits<T>::lowest();
-    }
+#ifdef DEBUG_GENERATION
+    DumpScores("NoRepeatNGramLogitsProcessor", next_token_scores);
+#endif
   }
 }
 

@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 #include "contrib_ops/cpu/transformers/beam_search_parameters.h"
+#include "contrib_ops/cpu/transformers/beam_search_helper.h"
 
 namespace onnxruntime {
 namespace contrib {
@@ -23,7 +24,19 @@ void BeamSearchParameters::ParseFromAttributes(const OpKernelInfo& info) {
   eos_token_id = static_cast<int>(info.GetAttrOrDefault<int64_t>("eos_token_id", -1));
   pad_token_id = static_cast<int>(info.GetAttrOrDefault<int64_t>("pad_token_id", -1));
   decoder_start_token_id = static_cast<int>(info.GetAttrOrDefault<int64_t>("decoder_start_token_id", -1));
-  no_repeat_ngram_size = static_cast<int>(info.GetAttrOrDefault<int64_t>("no_repeat_ngram_size", 0));
+  std::vector no_repeat_ngram_size_long = info.GetAttrsOrDefault<int64_t>("no_repeat_ngram_size");
+  no_repeat_ngram_size = std::vector<int>(no_repeat_ngram_size_long.begin(), no_repeat_ngram_size_long.end());
+  no_repeat_ngram_history_a = static_cast<int>(info.GetAttrOrDefault<int64_t>("no_repeat_ngram_history_a", 0));
+  no_repeat_ngram_history_b = static_cast<int>(info.GetAttrOrDefault<int64_t>("no_repeat_ngram_history_b", -1));
+  no_repeat_ngram_format_mode = static_cast<int>(info.GetAttrOrDefault<int64_t>("no_repeat_ngram_format_mode", 1));
+  ORT_ENFORCE(no_repeat_ngram_format_mode == 0 || no_repeat_ngram_format_mode == 1 || no_repeat_ngram_format_mode == 2,
+              "no_repeat_ngram_format_mode shall be 0, 1 or 2, got ", no_repeat_ngram_format_mode);
+  std::vector<int> format_tokens_shape;
+  format_tokens_shape.resize(2);
+  ORT_THROW_IF_ERROR(Get2DAttrsOrDefault(info, "no_repeat_ngram_format_tokens", format_tokens_shape, no_repeat_ngram_format_tokens));
+  no_repeat_ngram_format_tokens_num_exclusions = format_tokens_shape[0];
+  no_repeat_ngram_format_tokens_max_exclusion_length = format_tokens_shape[1];
+
   vocab_size = static_cast<int>(info.GetAttrOrDefault<int64_t>("vocab_size", -1));
 }
 
