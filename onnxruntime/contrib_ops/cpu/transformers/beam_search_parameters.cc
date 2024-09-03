@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 #include "contrib_ops/cpu/transformers/beam_search_parameters.h"
+#include "contrib_ops/cpu/transformers/beam_search_helper.h"
 
 namespace onnxruntime {
 namespace contrib {
@@ -25,6 +26,11 @@ void BeamSearchParameters::ParseFromAttributes(const OpKernelInfo& info) {
   decoder_start_token_id = static_cast<int>(info.GetAttrOrDefault<int64_t>("decoder_start_token_id", -1));
   no_repeat_ngram_size = static_cast<int>(info.GetAttrOrDefault<int64_t>("no_repeat_ngram_size", 0));
   vocab_size = static_cast<int>(info.GetAttrOrDefault<int64_t>("vocab_size", -1));
+  std::vector fsa_constraints = info.GetAttrsOrDefault<int64_t>("fsa_constraints");
+  std::vector<int> fsa_grammar_shape;
+  fsa_grammar_shape.resize(2);
+  ORT_THROW_IF_ERROR(Get2DAttrsOrDefault(info, "fsa_grammar", fsa_grammar_shape, fsa_grammar));
+  max_grammar_rule_length = fsa_grammar_shape[1];
 }
 
 void BeamSearchParameters::ParseFromInputs(OpKernelContext* context) {

@@ -7,6 +7,10 @@
 #include "core/common/gsl.h"
 #include "core/session/onnxruntime_cxx_api.h"
 #include "test/common/cuda_op_test_utils.h"
+#include "test/providers/provider_test_utils.h"
+#include "test/providers/model_tester.h"
+#include "test/util/include/current_test_name.h"
+
 
 
 #ifdef USE_CUDA
@@ -387,6 +391,18 @@ TEST(BeamSearchTest, GptBeamSearchFp16_VocabPadded) {
     auto result_span = gsl::make_span(result_vals, expected_output.size());
     ASSERT_TRUE(std::equal(expected_output.cbegin(), expected_output.cend(), result_span.begin(), result_span.end()));
   }
+}
+
+
+TEST(BeamSearchTest, SequentialConstraintsFSAModel) {
+// currently t5 model, needs to adjust
+  ModelTester tester(CurrentTestName(), ORT_TSTR("testdata/tiny_t5_with_sequence_input_ids.onnx"));
+  tester.AddInput("encoder_input_ids", {1, 5}, {16, 9, 16, 14, 15});
+  tester.AddOutput("sequences", {1, 3, 10}, {2, 1, 6, 1, 6, 1, 6, 1, 6, 1, 2, 1, 6, 1, 6, 1, 6, 1, 1, 6, 2, 1, 6, 1, 6, 1, 1, 6, 1, 6});
+#ifdef USE_CUDA
+  tester.ConfigEp(DefaultCudaExecutionProvider());
+#endif
+  tester.RunWithConfig();
 }
 
 

@@ -19,10 +19,6 @@ extern std::unique_ptr<Ort::Env> ort_env;
 namespace onnxruntime {
 namespace test {
 
-TEST(JeroenLogitTest, JeroenLogitSeedTest) {  // Just here to verify tests are discovered, not a real test
-  ASSERT_EQ(8211, 8211);
-}  // keeping at end because seems tests output gets trunated sometimes
-
 
 TEST(MinLengthLogitsProcessor, InitTest) {
     int min_length = 3;

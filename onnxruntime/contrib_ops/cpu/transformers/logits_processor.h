@@ -429,6 +429,19 @@ class LogitsProcessorList : public ILogitsProcessorList {
       processor_list_.push_back(presence_penalty_processor_.get());
     }
 
+    if (parameters.fsa_constraints.size() > 0) {
+
+      sequential_constraints_fsa_processor_ = std::make_unique<
+          SequentialConstraintsFSALogitsProcessor<float>>(
+            parameters.fsa_constraints,
+            parameters.fsa_grammar,
+            parameters.batch_size,
+            parameters.max_grammar_rule_length,
+            parameters.vocab_size
+          );
+      processor_list_.push_back(sequential_constraints_fsa_processor_.get());
+    }
+
     // Add timestamp processor for whisper model
     if (parameters.model_type == IGenerationParameters::kModelTypeWhisper && parameters.logits_processor == IGenerationParameters::kLogitsProcessorTypeWhisper) {
       constexpr int max_initial_timestamp_index = 50;
@@ -460,6 +473,7 @@ class LogitsProcessorList : public ILogitsProcessorList {
   std::unique_ptr<MaxLengthLogitsProcessor<float>> max_length_processor_;
   std::unique_ptr<TemperatureLogitsProcessor<float>> temperature_processor_;
   std::unique_ptr<PresencePenaltyLogitsProcessor<float>> presence_penalty_processor_;
+  std::unique_ptr<SequentialConstraintsFSALogitsProcessor<float>> sequential_constraints_fsa_processor_;
   std::unique_ptr<TimestampLogitsProcessor<float>> timestamp_processor_;
 };
 
