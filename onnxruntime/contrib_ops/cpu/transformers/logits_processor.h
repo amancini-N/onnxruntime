@@ -100,10 +100,14 @@ class NoRepeatNGramLogitsProcessor : public ILogitsProcessor<T> {
                NextTokenScores<T>& next_token_scores) override;
 
  private:
+  bool CheckFormatNGram(int ngram_size, gsl::span<const int32_t> ngram);
+
   std::vector<int> ngram_size_;
   std::vector<int> history_lengths_;
   int format_mode_;
   std::vector<int> format_tokens_;
+  std::vector<int> format_tokens_lengths_;
+  std::unordered_set<int> format_tokens_unique_;
   int format_tokens_num_exclusions_;
   int format_tokens_max_length_;
 };

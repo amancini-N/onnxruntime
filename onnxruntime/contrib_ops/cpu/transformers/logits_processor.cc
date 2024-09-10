@@ -85,6 +85,92 @@ NoRepeatNGramLogitsProcessor<T>::NoRepeatNGramLogitsProcessor(
   for (unsigned int i = 0; i < ngram_size.size(); i++) {
     history_lengths_[i] = ngram_history_a * ngram_size[i] + ngram_history_b;
   }
+  format_tokens_unique_ = std::unordered_set<int>(format_tokens_.begin(), format_tokens_.end());
+  format_tokens_lengths_.resize(format_tokens_num_exclusions_);
+  // Count padding in tokens (0). Compute lengths
+  for (int i = 0; i < format_tokens_num_exclusions_; i++) {
+    format_tokens_lengths_[i] = format_tokens_max_length_ - std::count(format_tokens_.begin() + i * format_tokens_max_length_,
+                                                                       format_tokens_.begin() + (i + 1) * format_tokens_max_length_, 0);
+  }
+}
+
+// Check if ngram is a format sequence, if so, ignore it.
+// format mode is 0 for ALL method, 1 for ANY method, 2 for SIMPLE method
+// In ALL method, we match a complete ngram against the format tokens.
+// In ANY method, we match any token in the ngram against the format tokens.
+// In SIMPLE method, we match the last token in the ngram against the format tokens.
+template <typename T>
+bool NoRepeatNGramLogitsProcessor<T>::CheckFormatNGram(int ngram_size, gsl::span<const int32_t> ngram) {
+  ORT_UNUSED_PARAMETER(ngram_size);
+  if (format_tokens_.empty()) {
+    return false;
+  }
+
+  if (format_mode_ == 0) {
+    for (int i = 0; i < static_cast<int>(ngram.size()); i++) {
+      if (format_mode_ == 0) {
+        if (format_tokens_unique_.find(ngram[i]) == format_tokens_unique_.end()) {
+          return false;
+        }
+      }
+    }
+    return true;
+  }
+  else if (format_mode_ == 1 && format_tokens_max_length_ == 1) {
+    for (int i = 0; i < static_cast<int>(ngram.size()); i++) {
+      if (format_tokens_unique_.find(ngram[i]) != format_tokens_unique_.end()) {
+        return true;
+      }
+    }
+    return false;
+  }
+  else if (format_mode_ == 1) {
+    for (int i = 0; i < format_tokens_num_exclusions_; i++) {
+      const int format_ngram_size = format_tokens_lengths_[i];
+      auto format_tokens_as_span = AsSpan(format_tokens_);
+      auto format_ngram = format_tokens_as_span.subspan(i * format_tokens_max_length_, format_ngram_size);
+      // check presence of format_ngram in ngram and save it
+      std::vector<bool> ngram_isin(ngram.size(), false);
+      for (int j = 0; j < static_cast<int>(ngram.size()); j++) {
+        if (std::find(format_ngram.begin(), format_ngram.end(), ngram[j]) != format_ngram.end()) {
+          ngram_isin[j] = true;
+        }
+      }
+
+      // convolute ngram_isin with ones vector of length format_ngram_size
+      const int conv_out_size = static_cast<int>(ngram.size() - format_ngram_size + 1);
+      std::vector<int> convoluted(conv_out_size, 0);
+      const int m = static_cast<int>(format_ngram_size) / 2;
+      for (int j = 0; j < conv_out_size; j++) {
+        for (int k = 0; k < static_cast<int>(format_ngram_size); k++) {
+          if (j - k + m >= 0) {
+            convoluted[j] += ngram_isin[j - k + m];
+          }
+        }
+      }
+
+      // neglect elements in convoluted that are less than format_ngam.size()
+      for (int j = 0; j < conv_out_size; j++) {
+        if (convoluted[j] != format_ngram_size) {
+          convoluted[j] = 0;
+        }
+      }
+
+      // true if sum of convoluted is equal to format_ngram_size
+      if (std::accumulate(convoluted.begin(), convoluted.end(), 0) == format_ngram_size) {
+        return true;
+      }
+
+    }
+  }
+  else if (format_mode_ == 2) {
+    if (std::find(format_tokens_.begin(), format_tokens_.end(), ngram.back()) != format_tokens_.end()) {
+      return true;
+    }
+  }
+
+  return false;
+
 }
 
 template <typename T>
@@ -93,17 +179,17 @@ void NoRepeatNGramLogitsProcessor<T>::Process(const ISequences* sequences,
 
   int batch_beam_size = next_token_scores.batch_beam_size;
   int config_length = static_cast<int>(ngram_size_.size());
-  for (int i = 0; i < config_length; i++) {
-    int ngram = ngram_size_[i];
+  for (int c = 0; c < config_length; c++) {
+    int ngram = ngram_size_[c];
     if (ngram == 0 || ngram >= sequences->GetSequenceLength()) {
       continue;
     }
-    int history_length = history_lengths_[i];
+    int history_length = history_lengths_[c];
 
     gsl::index prefix_length = static_cast<gsl::index>(ngram) - 1;
     // We assume history_length is sorted
-    if (i > 0) {
-      int prefix_to_increase = history_lengths_[i - 1] - ngram + 1;
+    if (c > 0) {
+      int prefix_to_increase = history_lengths_[c - 1] - ngram + 1;
       prefix_length += prefix_to_increase;
     }
 
@@ -124,7 +210,7 @@ void NoRepeatNGramLogitsProcessor<T>::Process(const ISequences* sequences,
         // Here we use naive algorithm for matching. The complexity is O(batch_beam_size * ngram_size * sequence_length)
         // TODO(tianleiwu): build N-Gram index (hash table with prefix of length NGram - 1 as key,
         //                  and list of last word of NGram as value) for fast matching.
-        if (ngram == 1 || SpanEq(prefix, sequence.subspan(j, prefix_length))) {
+        if ((ngram == 1 || SpanEq(prefix, sequence.subspan(j, prefix_length))) && !CheckFormatNGram(ngram, sequence.subspan(j, ngram))) {
           blocked_word_ids.insert(sequence[static_cast<gsl::index>(j) + prefix_length]);
         }
       }
