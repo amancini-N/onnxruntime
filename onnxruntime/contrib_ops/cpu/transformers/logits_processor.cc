@@ -192,14 +192,20 @@ void NoRepeatNGramLogitsProcessor<T>::Process(const ISequences* sequences,
       int prefix_to_increase = history_lengths_[c - 1] - ngram + 1;
       prefix_length += prefix_to_increase;
     }
+    const int seq_len = sequences->GetSequenceLength();
+    if (seq_len > history_length && history_length > 0) {
+      prefix_length += history_length - seq_len;
+    }
+
+    if (seq_len <= prefix_length) {
+      continue;
+    }
 
     for (int i = 0; i < batch_beam_size; i++) {
       gsl::span<T> beam_token_scores = next_token_scores.GetScores(i);
       gsl::span<const int32_t> sequence = sequences->GetSequence(i);
-      const gsl::index seq_len = sequence.size();
       if (seq_len > history_length && history_length > 0) {
         sequence = sequence.subspan(seq_len - history_length);
-        prefix_length += history_length - seq_len;
       }
 
       gsl::span<const int32_t> prefix = sequence.subspan(seq_len - prefix_length);

@@ -1142,7 +1142,8 @@ ONNX_MS_OPERATOR_SET_SCHEMA(BeamSearch, 1,
                                 .Attr("eos_token_id", "The id of the end-of-sequence token", AttributeProto::INT)
                                 .Attr("pad_token_id", "The id of the padding token", AttributeProto::INT)
                                 .Attr("decoder_start_token_id", "The id of the token that indicates decoding starts.", AttributeProto::INT, static_cast<int64_t>(-1))
-                                .Attr("no_repeat_ngram_size", "no repeat ngrams size", AttributeProto::INTS, std::vector<int64_t>())
+                                .Attr("no_repeat_ngram_size", "no repeat ngrams size", AttributeProto::INT, static_cast<int64_t>(0))
+                                .Attr("no_repeat_ngram_sizes", "In case multiple ngram sizes should be used", AttributeProto::INTS, std::vector<int64_t>())
                                 .Attr("no_repeat_ngram_history_a", "no repeat ngrams history a", AttributeProto::INT, static_cast<int64_t>(0))
                                 .Attr("no_repeat_ngram_history_b", "no repeat ngrams history b", AttributeProto::INT, static_cast<int64_t>(-1))
                                 .Attr("no_repeat_ngram_format_tokens", "no repeat ngrams format tokens", AttributeProto::TENSOR, OPTIONAL_VALUE)
@@ -1316,9 +1317,7 @@ ONNX_MS_OPERATOR_SET_SCHEMA(GreedySearch, 1,
                                 .Attr("eos_token_id", "The id of the end-of-sequence token", AttributeProto::INT)
                                 .Attr("pad_token_id", "The id of the padding token", AttributeProto::INT)
                                 .Attr("decoder_start_token_id", "The id of the token that indicates decoding starts.", AttributeProto::INT, static_cast<int64_t>(-1))
-                                .Attr("no_repeat_ngram_size", "no repeat ngrams size", AttributeProto::INTS, std::vector<int64_t>())
-                                .Attr("no_repeat_ngram_history_a", "no repeat ngrams history a", AttributeProto::INT, static_cast<int64_t>(0))
-                                .Attr("no_repeat_ngram_history_b", "no repeat ngrams history b", AttributeProto::INT, static_cast<int64_t>(-1))
+                                .Attr("no_repeat_ngram_size", "no repeat ngrams size", AttributeProto::INT, static_cast<int64_t>(0))
                                 .Attr("model_type", "model type: 0 for decoder only like GPT-2; 1 for encoder decoder like Bart", AttributeProto::INT, static_cast<int64_t>(0))
                                 .Attr("encoder", "The subgraph for initialization of encoder and decoder. It will be called once before `decoder` subgraph.", AttributeProto::GRAPH, OPTIONAL_VALUE)
                                 .Attr("init_decoder",
@@ -1351,9 +1350,7 @@ ONNX_MS_OPERATOR_SET_SCHEMA(Sampling, 1,
                                 .Attr("eos_token_id", "The id of the end-of-sequence token", AttributeProto::INT)
                                 .Attr("pad_token_id", "The id of the padding token", AttributeProto::INT)
                                 .Attr("decoder_start_token_id", "The id of the token that indicates decoding starts.", AttributeProto::INT, static_cast<int64_t>(-1))
-                                .Attr("no_repeat_ngram_size", "no repeat ngrams size", AttributeProto::INTS, std::vector<int64_t>())
-                                .Attr("no_repeat_ngram_history_a", "no repeat ngrams history a", AttributeProto::INT, static_cast<int64_t>(0))
-                                .Attr("no_repeat_ngram_history_b", "no repeat ngrams history b", AttributeProto::INT, static_cast<int64_t>(-1))
+                                .Attr("no_repeat_ngram_size", "no repeat ngrams size", AttributeProto::INT, static_cast<int64_t>(0))
                                 .Attr("temperature", "The value used to module the next token probabilities.", AttributeProto::FLOAT, 1.0f)
                                 .Attr("top_p",
                                       "If set to float < 1, only the smallest set of most probable tokens with probabilities that add up to `top_p` or higher are kept for generation.",

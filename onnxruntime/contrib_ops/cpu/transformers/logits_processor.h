@@ -334,9 +334,14 @@ class LogitsProcessorList : public ILogitsProcessorList {
       processor_list_.push_back(repetition_penalty_processor_.get());
     }
 
-    if (parameters.no_repeat_ngram_size.size() > 0) {
-      no_repeat_ngram_processor_ = std::make_unique<
-          NoRepeatNGramLogitsProcessor<float>>(parameters.no_repeat_ngram_size, parameters.no_repeat_ngram_history_a, parameters.no_repeat_ngram_history_b, parameters.no_repeat_ngram_format_mode, parameters.no_repeat_ngram_format_tokens, parameters.no_repeat_ngram_format_tokens_num_exclusions, parameters.no_repeat_ngram_format_tokens_max_exclusion_length);
+    if (parameters.no_repeat_ngram_sizes.size() > 0) {
+      no_repeat_ngram_processor_ = std::make_unique<NoRepeatNGramLogitsProcessor<float>>(parameters.no_repeat_ngram_sizes,
+                                                                                         parameters.no_repeat_ngram_history_a,
+                                                                                         parameters.no_repeat_ngram_history_b,
+                                                                                         parameters.no_repeat_ngram_format_mode,
+                                                                                         parameters.no_repeat_ngram_format_tokens,
+                                                                                         parameters.no_repeat_ngram_format_tokens_num_exclusions,
+                                                                                         parameters.no_repeat_ngram_format_tokens_max_exclusion_length);
       processor_list_.push_back(no_repeat_ngram_processor_.get());
     }
 

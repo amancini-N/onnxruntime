@@ -145,7 +145,7 @@ struct IGenerationParameters {
   int eos_token_id;
   int pad_token_id;
   int decoder_start_token_id;
-  std::vector<int> no_repeat_ngram_size;
+  std::vector<int> no_repeat_ngram_sizes;
   int no_repeat_ngram_history_a;
   int no_repeat_ngram_history_b;
   std::vector<int> no_repeat_ngram_format_tokens;
