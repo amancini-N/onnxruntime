@@ -302,8 +302,6 @@ std::vector<std::vector<float>> SequentialConstraintsTestRunner(
     std::vector<std::vector<float>> next_scores_vector_out;
     for (int i = 0; i < batch_beam_size; i++) {
         std::vector<float> scores;
-        //gsl::span<T> GetScores(int batch_beam_index) {
-        // get a vector/span for current beam
 
         gsl::span<float> return_scores = next_token_scores.GetScores(i);
         for (auto& score : return_scores) {
@@ -419,6 +417,44 @@ TEST(SequentialConstraintsFSALogitsProcessor, SpecificConstraints) {
     ASSERT_EQ(result_scores_vector[0][1], std::numeric_limits<float>::lowest());  // not allowed due to constraint already reached
     ASSERT_NEAR(result_scores_vector[0][2], 0.3, 0.0001);   // remains same because next constraint
     ASSERT_NEAR(result_scores_vector[0][3], 0.4, 0.0001);   // ecplicitly allowed
+}
+
+TEST(SequentialConstraintsFSALogitsProcessor, SpecificConstraintsCheckRandomNonSpecificToken) {
+    // The SpecificConstraints test mask an issue
+    // Because we don't have not allowed token with index > max_grammar_rule_length and not otherwise explicitly disallowed
+    // This was an issue because in the implementation we were looping at one point to the end of the grammar rules instead of the end of the vocab size
+
+    int batch_beam_size = 1;
+    int vocab_size = 5;
+    int max_grammar_rule_length=2;
+
+    std::vector<std::vector<int32_t>> grammar = {
+        {-2, -1},
+        {4, -1},  // important one for testing
+        {-2, -1},
+        {-2, -1},
+        {-2, -1},
+        };
+    std::vector<int32_t> constraints = {3};
+
+    std::vector<std::vector<int32_t>> token_sequence_vectors = {{1}};
+    std::vector<std::vector<float>> next_scores_vector = {{0.1, 0.2, 0.3, 0.4, 0.5}};
+
+    std::vector<std::vector<float>> result_scores_vector = SequentialConstraintsTestRunner(
+        batch_beam_size,
+        vocab_size,
+        max_grammar_rule_length,
+        grammar,
+        constraints,
+        token_sequence_vectors,
+        next_scores_vector
+        );
+    // only second score changed
+    ASSERT_EQ(result_scores_vector[0][0], std::numeric_limits<float>::lowest());  // not allowed due to not ANY grammer rule (-2)
+    ASSERT_EQ(result_scores_vector[0][1], std::numeric_limits<float>::lowest());  // not allowed due to not ANY grammer rule (-2)
+    ASSERT_EQ(result_scores_vector[0][2], std::numeric_limits<float>::lowest());  // not allowed due to not ANY grammer rule (-2), greater than max_grammar_rule_length
+    ASSERT_NEAR(result_scores_vector[0][3], 0.4, 0.0001);   // explicitly allowed due to next contstraint
+    ASSERT_NEAR(result_scores_vector[0][4], 0.5, 0.0001);   // explicitly allowed
 }
 
 TEST(SequentialConstraintsFSALogitsProcessor, OneBeamAnyRuleAllConstraintsReached) {

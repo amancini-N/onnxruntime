@@ -396,9 +396,29 @@ TEST(BeamSearchTest, GptBeamSearchFp16_VocabPadded) {
 
 TEST(BeamSearchTest, SequentialConstraintsFSAModel) {
 // currently t5 model, needs to adjust
-  ModelTester tester(CurrentTestName(), ORT_TSTR("testdata/tiny_t5_with_sequence_input_ids.onnx"));
-  tester.AddInput("encoder_input_ids", {1, 5}, {16, 9, 16, 14, 15});
-  tester.AddOutput("sequences", {1, 3, 10}, {2, 1, 6, 1, 6, 1, 6, 1, 6, 1, 2, 1, 6, 1, 6, 1, 6, 1, 1, 6, 2, 1, 6, 1, 6, 1, 1, 6, 1, 6});
+  ModelTester tester(CurrentTestName(), ORT_TSTR("testdata/model_fsa_onnx/model.onnx"));
+  // vocab -> grammar ->  reduced grammar   (-2 ANY, -3 NEXT, -1 PADding)
+// 0 <padding>  -> -2 -3 2  ->  ANY, NEXT, EOS
+// 1 <bos>  -> -2 -3 2  -> ANY, NEXT, EOS
+// 2 <eos> -> 4 -1 -1  -> 4 (this)
+// 3 <unk> -> -2 -3 2  -> ANY, NEXT, EOS
+// 4 This  -> -2 -3 -1  -> ANY, NEXT
+// 5 a  -> -2 -3 2  -> ANY, NEXT, EOS
+// 6 is  -> -2 -3 -1  -> ANY, NEXT
+// 7 for  -> -2 -3 2  -> ANY, NEXT, EOS
+// 8 not  -> -2 -3 2  -> ANY, NEXT, EOS
+// 9 sample  -> -2 -3 2 -> ANY, NEXT, EOS
+// constraints:
+// 4 6 6  -> This is is
+
+  tester.AddInput<int64_t>("src_tokens", {1, 10}, {4, 6, 5, 9, 7, 3, 3, 3, 3, 2});
+  tester.AddOutput("tokens", {1, 3, 10}, {
+  //0, 1, 2, 3, 4, 5, 6, 7, 8, 9  // time step
+  //               3, 6, 3
+    2, 4, 3, 3, 3, 5, 3, 3, 7, 7,
+    2, 4, 3, 3, 3, 5, 5, 5, 3, 3,
+    2, 4, 3, 3, 3, 5, 5, 3, 3, 7,
+    });
 #ifdef USE_CUDA
   tester.ConfigEp(DefaultCudaExecutionProvider());
 #endif

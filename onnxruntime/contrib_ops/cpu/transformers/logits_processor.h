@@ -435,7 +435,7 @@ class LogitsProcessorList : public ILogitsProcessorList {
           SequentialConstraintsFSALogitsProcessor<float>>(
             parameters.fsa_constraints,
             parameters.fsa_grammar,
-            parameters.batch_size,
+            parameters.batch_size * parameters.num_beams,
             parameters.max_grammar_rule_length,
             parameters.vocab_size
           );

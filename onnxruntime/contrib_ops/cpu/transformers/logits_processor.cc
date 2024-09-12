@@ -246,7 +246,7 @@ SequentialConstraintsFSALogitsProcessor<T>::SequentialConstraintsFSALogitsProces
         if (std::find(rule_span.begin(), rule_span.end(), ANY_RULE_) != rule_span.end()) {
           std::fill_n(rule_mask_span.begin(), rule_mask_span.size(), ALLOWED_);
         } else {
-          std::fill_n(rule_mask_span.begin(), rule_span.size(), MASKED_);
+          std::fill_n(rule_mask_span.begin(), rule_mask_span.size(), MASKED_);
         }
         // now set all tokens in constraints to 0
         for (int j = 0; j < static_cast<int>(constraints.size()); j++) {
@@ -270,6 +270,9 @@ SequentialConstraintsFSALogitsProcessor<T>::SequentialConstraintsFSALogitsProces
 template <typename T>
 void SequentialConstraintsFSALogitsProcessor<T>::Process(const ISequences* sequences,
                                           NextTokenScores<T>& next_token_scores) {
+
+  int num_batch_beams = next_token_scores.batch_beam_size;
+  assert(num_batch_beams == batch_beam_size_);
 
   for (int beam_index = 0; beam_index < batch_beam_size_; beam_index++) {
     int next_constraint = -1;

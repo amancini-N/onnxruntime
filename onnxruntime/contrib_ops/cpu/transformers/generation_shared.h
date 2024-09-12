@@ -147,8 +147,8 @@ struct IGenerationParameters {
   int decoder_start_token_id;
   int no_repeat_ngram_size;
 
-  std::vector<int> fsa_constraints;
-  std::vector<int> fsa_grammar;
+  std::vector<int32_t> fsa_constraints;
+  std::vector<int32_t> fsa_grammar;
   int max_grammar_rule_length;
 
   bool early_stopping;
