@@ -274,8 +274,18 @@ void SequentialConstraintsFSALogitsProcessor<T>::Process(const ISequences* seque
   int num_batch_beams = next_token_scores.batch_beam_size;
   assert(num_batch_beams == batch_beam_size_);
 
+  std::vector<int32_t> new_next_constraint_indexes = std::vector<int32_t>(batch_beam_size_);
+
+  for (int beam_index = 0; beam_index < batch_beam_size_; beam_index++) {
+    int previous_index = sequences->GetPreviousBeamIndex(beam_index);
+    new_next_constraint_indexes[beam_index] = next_constraint_indexes_[previous_index];
+  }
+  std::copy(new_next_constraint_indexes.begin(), new_next_constraint_indexes.end(), next_constraint_indexes_.begin());
+
+
   for (int beam_index = 0; beam_index < batch_beam_size_; beam_index++) {
     int next_constraint = -1;
+    // int next_constraint_index = sequences->GetFSAState(beam_index)
     int next_constraint_index = next_constraint_indexes_[beam_index];
     if( next_constraint_index != -1){
       // -1 means that we already reached the end of the constraints before
@@ -315,6 +325,31 @@ void SequentialConstraintsFSALogitsProcessor<T>::Process(const ISequences* seque
     }
     // now we update the next token scores for the beam
     next_token_scores.ApplyMask(beam_index, dynamic_grammar_mask_span, MASKED_);
+    // candidates = [
+    //     (1, 2, 3)
+    //        state = [fsa_0]
+    //     (a, b, c)
+    //        state = [fsa_1]
+    //     (u, v, w)
+    //        state = [fsa_5]
+    // ]
+    // candidates = [
+    //     (1, 2, 3, 4)
+    //        state = [fsa_0]
+    //     (u,v, w, x)
+    //        state = [fsa_5]
+    //     (u,v, w, z)
+    //        state = [fsa_5]
+    // ]
+    //  0 // 2 4 5 3 3 3
+         //     1
+    // 1 //  2 4 3 3 3 6
+         //    1       2
+    // 2 //  2 4 3 3 3 5
+         //    1
+    #ifdef DEBUG_GENERATION
+      DumpScores("SequentialConstraintsFSALogitsProcessor", next_token_scores);
+    #endif
   }
 }
 

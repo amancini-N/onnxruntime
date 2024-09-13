@@ -100,6 +100,7 @@ struct ISequences {
   virtual gsl::span<int32_t> GetNextDeviceSequences() = 0;                 // Get all next beam_index sequences in one continuous block (to pass to CUDA)
   virtual int GetSequenceLength() const = 0;
   virtual int GetMaxLength() const = 0;
+  virtual int GetPreviousBeamIndex(int beam_index) const = 0;  // Get the beam index of the previous step the current beam is derived from
 };
 
 struct ILogitsProcessorList {

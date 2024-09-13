@@ -20,6 +20,8 @@ void Sequences::Init(gsl::span<int32_t> buffer, int batch_beam_size, int sequenc
   batch_beam_size_ = batch_beam_size;
   max_length_ = max_length;
   current_length_ = sequence_length;
+
+  previous_beam_index_ = std::vector<int>(batch_beam_size, 0);
 }
 
 void Sequences::InitDevice(gsl::span<int32_t> buffer) {
@@ -34,6 +36,10 @@ gsl::span<const int32_t> Sequences::GetSequence(int beam_index) const {
   return buffer.subspan(SafeInt<size_t>(beam_index) * max_length_, static_cast<gsl::index>(current_length_));
 }
 
+int Sequences::GetPreviousBeamIndex(int beam_index) const {
+  assert(beam_index >= 0 && beam_index < batch_beam_size_);
+  return previous_beam_index_[beam_index];
+}
 
 int Sequences::GetSequenceLength() const {
   return current_length_;
@@ -69,6 +75,9 @@ void Sequences::AppendNextTokenToSequences(
 
     // Append next token to each beam.
     output[SafeInt<size_t>(i) * max_length_ + current_length_] = beam_next_tokens[i];
+
+    // add memory about parent beam
+    previous_beam_index_[i]  = beam_index;
   }
 
   ++current_length_;
