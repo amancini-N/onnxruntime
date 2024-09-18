@@ -233,7 +233,7 @@ SequentialConstraintsFSALogitsProcessor<T>::SequentialConstraintsFSALogitsProces
 
       for (int vocab_index = 0; vocab_index < vocab_size; vocab_index++) {
         // now lets fill the fixed_grammar_maks_span by creating first a rule_mask_span
-        // from the vocab_rule_span (grammer_ for this c)
+        // from the vocab_rule_span (grammar_ for this c)
         // at the end we copy from one to the other
 
         // target mask
@@ -248,11 +248,11 @@ SequentialConstraintsFSALogitsProcessor<T>::SequentialConstraintsFSALogitsProces
         } else {
           std::fill_n(rule_mask_span.begin(), rule_mask_span.size(), MASKED_);
         }
-        // now set all tokens in constraints to 0
+        // now set all tokens in constraints to _MASKED_
         for (int j = 0; j < static_cast<int>(constraints.size()); j++) {
           rule_mask_span[constraints[j]] = MASKED_;
         }
-        // now go over the rules, if it contains anything >= 0, set the mask to 1
+        // now go over the rules, if it contains anything >= 0, set the mask value to _ALLOWED_
         // in theory we shouldn't allow items in the constraint list/ raise error?
         for (int rule_index = 0; rule_index < max_grammar_rule_length_; rule_index++) {
           if (rule_span[rule_index] >= 0) {
@@ -274,8 +274,8 @@ void SequentialConstraintsFSALogitsProcessor<T>::Process(const ISequences* seque
   int num_batch_beams = next_token_scores.batch_beam_size;
   assert(num_batch_beams == batch_beam_size_);
 
+  // we permute the next_constraint_indexes_ to match the new beam indexes
   std::vector<int32_t> new_next_constraint_indexes = std::vector<int32_t>(batch_beam_size_);
-
   for (int beam_index = 0; beam_index < batch_beam_size_; beam_index++) {
     int previous_index = sequences->GetPreviousBeamIndex(beam_index);
     new_next_constraint_indexes[beam_index] = next_constraint_indexes_[previous_index];
@@ -284,11 +284,11 @@ void SequentialConstraintsFSALogitsProcessor<T>::Process(const ISequences* seque
 
 
   for (int beam_index = 0; beam_index < batch_beam_size_; beam_index++) {
+    // if next_constraint is still -1 at the end, it means we exhausted the constraints list
     int next_constraint = -1;
-    // int next_constraint_index = sequences->GetFSAState(beam_index)
     int next_constraint_index = next_constraint_indexes_[beam_index];
     if( next_constraint_index != -1){
-      // -1 means that we already reached the end of the constraints before
+      // -1 for next_constraint index means that we already reached the end of the constraints before
       next_constraint = constraints_[next_constraint_index];
     }
     gsl::span<const int32_t> sequence = sequences->GetSequence(beam_index);
@@ -320,33 +320,9 @@ void SequentialConstraintsFSALogitsProcessor<T>::Process(const ISequences* seque
     if (next_constraint != -1) {
       // we are not at the end, we need to update the dynamic grammar mask
       dynamic_grammar_mask_span[next_constraint] = ALLOWED_;
-      // assert this is now set to 1
-      assert(dynamic_grammar_mask_span[next_constraint] == ALLOWED_);
     }
     // now we update the next token scores for the beam
     next_token_scores.ApplyMask(beam_index, dynamic_grammar_mask_span, MASKED_);
-    // candidates = [
-    //     (1, 2, 3)
-    //        state = [fsa_0]
-    //     (a, b, c)
-    //        state = [fsa_1]
-    //     (u, v, w)
-    //        state = [fsa_5]
-    // ]
-    // candidates = [
-    //     (1, 2, 3, 4)
-    //        state = [fsa_0]
-    //     (u,v, w, x)
-    //        state = [fsa_5]
-    //     (u,v, w, z)
-    //        state = [fsa_5]
-    // ]
-    //  0 // 2 4 5 3 3 3
-         //     1
-    // 1 //  2 4 3 3 3 6
-         //    1       2
-    // 2 //  2 4 3 3 3 5
-         //    1
     #ifdef DEBUG_GENERATION
       DumpScores("SequentialConstraintsFSALogitsProcessor", next_token_scores);
     #endif

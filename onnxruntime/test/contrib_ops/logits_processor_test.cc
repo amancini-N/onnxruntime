@@ -413,7 +413,7 @@ TEST(SequentialConstraintsFSALogitsProcessor, SpecificConstraints) {
         next_scores_vector
         );
     // only second score changed
-    ASSERT_EQ(result_scores_vector[0][0], std::numeric_limits<float>::lowest());  // not allowed due to not ANY grammer rule (-2)
+    ASSERT_EQ(result_scores_vector[0][0], std::numeric_limits<float>::lowest());  // not allowed due to not ANY grammar rule (-2)
     ASSERT_EQ(result_scores_vector[0][1], std::numeric_limits<float>::lowest());  // not allowed due to constraint already reached
     ASSERT_NEAR(result_scores_vector[0][2], 0.3, 0.0001);   // remains same because next constraint
     ASSERT_NEAR(result_scores_vector[0][3], 0.4, 0.0001);   // ecplicitly allowed
@@ -450,9 +450,9 @@ TEST(SequentialConstraintsFSALogitsProcessor, SpecificConstraintsCheckRandomNonS
         next_scores_vector
         );
     // only second score changed
-    ASSERT_EQ(result_scores_vector[0][0], std::numeric_limits<float>::lowest());  // not allowed due to not ANY grammer rule (-2)
-    ASSERT_EQ(result_scores_vector[0][1], std::numeric_limits<float>::lowest());  // not allowed due to not ANY grammer rule (-2)
-    ASSERT_EQ(result_scores_vector[0][2], std::numeric_limits<float>::lowest());  // not allowed due to not ANY grammer rule (-2), greater than max_grammar_rule_length
+    ASSERT_EQ(result_scores_vector[0][0], std::numeric_limits<float>::lowest());  // not allowed due to not ANY grammar rule (-2)
+    ASSERT_EQ(result_scores_vector[0][1], std::numeric_limits<float>::lowest());  // not allowed due to not ANY grammar rule (-2)
+    ASSERT_EQ(result_scores_vector[0][2], std::numeric_limits<float>::lowest());  // not allowed due to not ANY grammar rule (-2), greater than max_grammar_rule_length
     ASSERT_NEAR(result_scores_vector[0][3], 0.4, 0.0001);   // explicitly allowed due to next contstraint
     ASSERT_NEAR(result_scores_vector[0][4], 0.5, 0.0001);   // explicitly allowed
 }

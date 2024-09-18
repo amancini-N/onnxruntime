@@ -32,23 +32,20 @@ struct NextTokenScores {
   }
 
   void SetScore(int token_id, T score) {
-    // this sets the next_token_score for ALL batch_beams to the same score
-    // A bit weird/misleading?
-    // would at least rename to something like "SetScoreForAllBeams"
+    // this sets the next_token_score of one vocab/token id for ALL batch_beams to the same score
+    // note that this is not mirrors the behavior of GetScore (which returns all vocab/token scores for a single batch_beam)
     assert(token_id >= 0 && token_id < vocab_size);
     for (int i = 0; i < batch_beam_size; i++) {
       scores[static_cast<gsl::index>(i) * vocab_size + token_id] = score;
     }
   }
 
-  void ApplyMask(int batch_beam_id, gsl::span<int32_t> mask, int32_t mask_value=1) {
+  void ApplyMask(int batch_beam_id, gsl::span<int32_t> mask, int32_t mask_value) {
     assert(batch_beam_id >= 0 && batch_beam_id < batch_beam_size);
-    // assert(stascores.size() == vocab_size));
-    // but static cast
     assert(static_cast<int>(mask.size()) == vocab_size);
-    for (int i = 0; i < vocab_size; i++) {
-      if (mask[i] == mask_value) {
-        scores[batch_beam_id * vocab_size + i] = std::numeric_limits<T>::lowest();
+    for (int token_id = 0; token_id < vocab_size; token_id++) {
+      if (mask[token_id] == mask_value) {
+        scores[batch_beam_id * vocab_size + token_id] = std::numeric_limits<T>::lowest();
       }
     }
   }
@@ -218,8 +215,8 @@ class SequentialConstraintsFSALogitsProcessor : public ILogitsProcessor<T> {
                NextTokenScores<T>& next_token_scores) override;
 
  private:
-  constexpr static int32_t MASKED_ = 1;
-  constexpr static int32_t ALLOWED_ = 0;
+  constexpr static int32_t MASKED_ = 0;
+  constexpr static int32_t ALLOWED_ = 1;
   constexpr static int32_t ANY_RULE_ = -2;
   const gsl::span<const int32_t> constraints_;
   const gsl::span<const int32_t> grammar_;
@@ -437,8 +434,7 @@ class LogitsProcessorList : public ILogitsProcessorList {
             parameters.fsa_grammar,
             parameters.batch_size * parameters.num_beams,
             parameters.max_grammar_rule_length,
-            parameters.vocab_size
-          );
+            parameters.vocab_size);
       processor_list_.push_back(sequential_constraints_fsa_processor_.get());
     }
 
