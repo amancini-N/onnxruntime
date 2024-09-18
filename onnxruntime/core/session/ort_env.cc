@@ -77,7 +77,7 @@ void OrtEnv::Release(OrtEnv* env_ptr) {
     return;
   }
   std::lock_guard<onnxruntime::OrtMutex> lock(m_);
-  // ORT_ENFORCE(env_ptr == p_instance_.get());  // sanity check
+  ORT_ENFORCE(env_ptr == p_instance_.get());  // sanity check
   --ref_count_;
   if (ref_count_ == 0) {
     p_instance_.reset();

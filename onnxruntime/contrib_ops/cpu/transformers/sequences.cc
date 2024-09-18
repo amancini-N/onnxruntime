@@ -1,6 +1,7 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License.
 
+#include <vector>
 #include "core/common/safeint.h"
 #include "contrib_ops/cpu/transformers/sequences.h"
 
@@ -30,8 +31,6 @@ void Sequences::InitDevice(gsl::span<int32_t> buffer) {
 }
 
 gsl::span<const int32_t> Sequences::GetSequence(int beam_index) const {
-  assert(beam_index >= 0 && beam_index < batch_beam_size_);
-  assert(SafeInt(size_t(beam_index) * max_length_ + static_cast<gsl::index>(current_length_)) <= sequences[current_sequences_buffer].size());
   gsl::span<const int32_t> buffer = sequences[current_sequences_buffer];
   return buffer.subspan(SafeInt<size_t>(beam_index) * max_length_, static_cast<gsl::index>(current_length_));
 }
