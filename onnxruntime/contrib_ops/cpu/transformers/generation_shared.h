@@ -5,7 +5,6 @@
 
 #include <utility>
 #include <random>
-#include <vector>
 #include "core/common/gsl.h"
 #include "core/framework/allocator.h"
 #include "contrib_ops/cpu/utils/console_dumper.h"
@@ -101,9 +100,7 @@ struct ISequences {
   virtual gsl::span<int32_t> GetNextDeviceSequences() = 0;                 // Get all next beam_index sequences in one continuous block (to pass to CUDA)
   virtual int GetSequenceLength() const = 0;
   virtual int GetMaxLength() const = 0;
-
-  // Get the beam index of the beam from the previous time_step that the current beam is derived from
-  virtual int GetPreviousBeamIndex(int beam_index) const = 0;
+  virtual int GetPreviousBeamIndex(int beam_index) const = 0;  // Get the beam index of the previous step the current beam is derived from
 };
 
 struct ILogitsProcessorList {

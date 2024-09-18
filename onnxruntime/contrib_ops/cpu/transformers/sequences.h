@@ -3,7 +3,6 @@
 
 #pragma once
 
-#include <vector>
 #include "core/common/gsl.h"
 #include "contrib_ops/cpu/transformers/generation_shared.h"
 

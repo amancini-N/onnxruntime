@@ -1,0 +1,6 @@
+This 10
+a 10
+is 10
+for 5
+not 5
+sample 5

@@ -1144,18 +1144,8 @@ ONNX_MS_OPERATOR_SET_SCHEMA(BeamSearch, 1,
                                 .Attr("decoder_start_token_id", "The id of the token that indicates decoding starts.", AttributeProto::INT, static_cast<int64_t>(-1))
                                 .Attr("no_repeat_ngram_size", "no repeat ngrams size", AttributeProto::INT, static_cast<int64_t>(0))
 
-                                .Attr("fsa_constraints",
-                                      "Should be an ordered list of token ids that wil sequentially be allowed to be generated othewise blocked",
-                                      AttributeProto::INTS,
-                                      std::vector<int64_t>())
-                                .Attr("fsa_grammar",
-                                      "A tensor of shape (vocab_size, N) where is N is the maximum rule length. "
-                                      "Each row represents a list of rules with following values:"
-                                      "vocab_token_id>=0 -> allow this token in the vocabularly "
-                                      "-1: padding token to get all rule list to length N "
-                                      "-2: Allow any token in the vocabulary (expect the ones in fsa_constraints)",
-                                      AttributeProto::TENSOR,
-                                      OPTIONAL_VALUE)
+                                .Attr("fsa_constraints", "fsa constraints", AttributeProto::INTS, std::vector<int64_t>())
+                                .Attr("fsa_grammar", "fsa grammar", AttributeProto::TENSOR, OPTIONAL_VALUE)
 
                                 .Attr("early_stopping", "early stop or not", AttributeProto::INT, static_cast<int64_t>(0))
                                 .Attr("model_type", "model type: 0 for GPT-2; 1 for encoder decoder like T5", AttributeProto::INT, static_cast<int64_t>(0))

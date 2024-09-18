@@ -1,7 +1,6 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License.
 
-#include <vector>
 #include "contrib_ops/cpu/transformers/beam_search_parameters.h"
 #include "contrib_ops/cpu/transformers/beam_search_helper.h"
 

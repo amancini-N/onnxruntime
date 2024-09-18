@@ -1,8 +1,6 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License.
 
-#include <string>
-#include <vector>
 #include "contrib_ops/cpu/transformers/beam_search_helper.h"
 #include "onnx/defs/tensor_proto_util.h"
 
@@ -32,19 +30,15 @@ Status Get2DAttrsOrDefault(const OpKernelInfo& kernel_info, const std::string& a
     }
 
     data = ONNX_NAMESPACE::ParseData<T>(&proto);
+
   }
   return Status::OK();
 }
 
-Status Get2DAttrsOrDefault(
-  const OpKernelInfo& info,
-  const std::string& name,
-  std::vector<int>& shape,
-  std::vector<int>& data
-  ) {
+Status Get2DAttrsOrDefault(const OpKernelInfo& info, const std::string& name, std::vector<int>& shape, std::vector<int>& data) {
   return Get2DAttrsOrDefault(info, name, ONNX_NAMESPACE::TensorProto_DataType::TensorProto_DataType_INT32, shape, data);
 }
 
-}  // namespace transformers
-}  // namespace contrib
-}  // namespace onnxruntime
+} // namespace transformers
+} // namespace contrib
+} // namespace onnxruntime
