@@ -246,8 +246,8 @@ SequentialConstraintsFSALogitsProcessor<T>::SequentialConstraintsFSALogitsProces
       int PADDING_RULE_ = -1;
       int ANY_RULE_ = -2;
       int NEXT_RULE_ = -3;
+      assert(vocab_index * max_grammar_rule_length_ + max_grammar_rule_length_ <= static_cast<int>(grammar_.size()));
       for (int vocab_index = 0; vocab_index < vocab_size_; vocab_index++) {
-        assert(vocab_index * max_grammar_rule_length_ + max_grammar_rule_length_ <= static_cast<int>(grammar_.size()));
         gsl::span<const int32_t> rule_span = grammar_.subspan(vocab_index * max_grammar_rule_length_, max_grammar_rule_length_);
         // we go over the span
         for (int j = 0; j < max_grammar_rule_length_; j++) {
@@ -352,7 +352,6 @@ void SequentialConstraintsFSALogitsProcessor<T>::Process(const ISequences* seque
     int last_token = sequence[sequence.size() - 1];
 
     int next_constraint = NextConstraint(beam_index, last_token);
-    last_token = sequences->GetSequence(beam_index)[sequences->GetSequenceLength() - 1];
     std::unordered_set<int32_t> masked_word_ids = GetMaskedWordIds(last_token, next_constraint);
 
     next_token_scores.ApplyMask(beam_index, masked_word_ids);
