@@ -316,9 +316,9 @@ std::vector<std::vector<float>> SequentialConstraintsTestRunner(
 TEST(SequentialConstraintsFSALogitsProcessor, OneBeamAnyRuleNoConstraintYet) {
     int batch_beam_size = 1;
     int vocab_size = 3;
-    int max_grammar_rule_length=1;
+    int max_grammar_rule_length=2;
 
-    std::vector<std::vector<int32_t>> grammar = {{-2}, {-2}, {-2}};
+    std::vector<std::vector<int32_t>> grammar = {{-2, -3}, {-2, -3}, {-2, -3}};
     std::vector<int32_t> constraints = {1, 2};
 
     std::vector<std::vector<int32_t>> token_sequence_vectors = {{0}};
@@ -342,9 +342,9 @@ TEST(SequentialConstraintsFSALogitsProcessor, OneBeamAnyRuleNoConstraintYet) {
 TEST(SequentialConstraintsFSALogitsProcessor, OneBeamAnyRuleLastTokenIsCurrentConstraint) {
     int batch_beam_size = 1;
     int vocab_size = 3;
-    int max_grammar_rule_length=1;
+    int max_grammar_rule_length=2;
 
-    std::vector<std::vector<int32_t>> grammar = {{-2}, {-2}, {-2}};
+    std::vector<std::vector<int32_t>> grammar = {{-2, -3}, {-2, -3}, {-2, -3}};
     std::vector<int32_t> constraints = {1, 2};
 
     std::vector<std::vector<int32_t>> token_sequence_vectors = {{1}};
@@ -368,9 +368,9 @@ TEST(SequentialConstraintsFSALogitsProcessor, OneBeamAnyRuleLastTokenIsCurrentCo
 TEST(SequentialConstraintsFSALogitsProcessor, OneBeamAnyRuleAlreadyOneConstraint) {
     int batch_beam_size = 1;
     int vocab_size = 4;
-    int max_grammar_rule_length=1;
+    int max_grammar_rule_length=2;
 
-    std::vector<std::vector<int32_t>> grammar = {{-2}, {-2}, {-2}, {-2}};
+    std::vector<std::vector<int32_t>> grammar = {{-2, -3}, {-2, -3}, {-2, -3}, {-2, -3}};
     std::vector<int32_t> constraints = {1, 2};
 
     std::vector<std::vector<int32_t>> token_sequence_vectors = {{1}, {0}};
@@ -395,9 +395,9 @@ TEST(SequentialConstraintsFSALogitsProcessor, OneBeamAnyRuleAlreadyOneConstraint
 TEST(SequentialConstraintsFSALogitsProcessor, SpecificConstraints) {
     int batch_beam_size = 1;
     int vocab_size = 4;
-    int max_grammar_rule_length=1;
+    int max_grammar_rule_length=2;
 
-    std::vector<std::vector<int32_t>> grammar = {{3}, {3}, {3}, {3}};
+    std::vector<std::vector<int32_t>> grammar = {{3, -3}, {3, -3}, {3, -3}, {3, -3}};
     std::vector<int32_t> constraints = {1, 2};
 
     std::vector<std::vector<int32_t>> token_sequence_vectors = {{1}};
@@ -419,21 +419,22 @@ TEST(SequentialConstraintsFSALogitsProcessor, SpecificConstraints) {
     ASSERT_NEAR(result_scores_vector[0][3], 0.4, 0.0001);   // ecplicitly allowed
 }
 
+
+// The SpecificConstraints test mask an issue
+// Because we don't have not allowed token with index > max_grammar_rule_length and not otherwise explicitly disallowed
+// This was an issue because in the implementation we were looping at one point to the end of the grammar rules instead of the end of the vocab size
 TEST(SequentialConstraintsFSALogitsProcessor, SpecificConstraintsCheckRandomNonSpecificToken) {
-    // The SpecificConstraints test mask an issue
-    // Because we don't have not allowed token with index > max_grammar_rule_length and not otherwise explicitly disallowed
-    // This was an issue because in the implementation we were looping at one point to the end of the grammar rules instead of the end of the vocab size
 
     int batch_beam_size = 1;
     int vocab_size = 5;
-    int max_grammar_rule_length=2;
+    int max_grammar_rule_length=3;
 
     std::vector<std::vector<int32_t>> grammar = {
-        {-2, -1},
-        {4, -1},  // important one for testing
-        {-2, -1},
-        {-2, -1},
-        {-2, -1},
+        {-3, -2, -1},
+        {-3, 4, -1},  // important one for testing
+        {-3, -2, -1},
+        {-3, -2, -1},
+        {-3, -2, -1},
         };
     std::vector<int32_t> constraints = {3};
 
@@ -460,9 +461,9 @@ TEST(SequentialConstraintsFSALogitsProcessor, SpecificConstraintsCheckRandomNonS
 TEST(SequentialConstraintsFSALogitsProcessor, OneBeamAnyRuleAllConstraintsReached) {
     int batch_beam_size = 1;
     int vocab_size = 3;
-    int max_grammar_rule_length=1;
+    int max_grammar_rule_length=2;
 
-    std::vector<std::vector<int32_t>> grammar = {{-2}, {-2}, {-2}};
+    std::vector<std::vector<int32_t>> grammar = {{-2, -3}, {-2, -3}, {-2, -3}};
     std::vector<int32_t> constraints = {1, 2};
 
     std::vector<std::vector<int32_t>> token_sequence_vectors = {{1}, {2}};
@@ -486,9 +487,9 @@ TEST(SequentialConstraintsFSALogitsProcessor, OneBeamAnyRuleAllConstraintsReache
 TEST(SequentialConstraintsFSALogitsProcessor, MultiBeamAnyRuleDifferentConstraintReached) {
     int batch_beam_size = 2;
     int vocab_size = 3;
-    int max_grammar_rule_length=1;
+    int max_grammar_rule_length=2;
 
-    std::vector<std::vector<int32_t>> grammar = {{-2}, {-2}, {-2}};
+    std::vector<std::vector<int32_t>> grammar = {{-2, -3}, {-2, -3}, {-2, -3}};
     std::vector<int32_t> constraints = {1, 2};
 
     std::vector<std::vector<int32_t>> token_sequence_vectors = {{1, 1}, {2, 0}};

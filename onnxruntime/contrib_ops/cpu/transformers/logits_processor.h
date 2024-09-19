@@ -40,13 +40,11 @@ struct NextTokenScores {
     }
   }
 
-  void ApplyMask(int batch_beam_id, gsl::span<int32_t> mask, int32_t mask_value) {
+
+  void ApplyMask(int batch_beam_id, std::unordered_set<int32_t>& masked_word_ids) {
     assert(batch_beam_id >= 0 && batch_beam_id < batch_beam_size);
-    assert(static_cast<int>(mask.size()) == vocab_size);
-    for (int token_id = 0; token_id < vocab_size; token_id++) {
-      if (mask[token_id] == mask_value) {
-        scores[batch_beam_id * vocab_size + token_id] = std::numeric_limits<T>::lowest();
-      }
+    for (int32_t token_id : masked_word_ids) {
+      scores[batch_beam_id * vocab_size + token_id] = std::numeric_limits<T>::lowest();
     }
   }
 };
@@ -187,20 +185,20 @@ class PresencePenaltyLogitsProcessor : public ILogitsProcessor<T> {
 };
 
 
+// This class is an FSA, but with following semantics:
+// Unless max_length is reached:
+// We apply the following:
+//       * Suppress all tokens (not just the ones in the constraint list)
+//       * Except the next token in the constraint list.
+//       * Augment allowed tokens based on the grammar rules, the last token determines the grammar rule with allowed tokens
+//       * the rules can contain:
+//          i. vocab token id -> unsupress this token
+//          ii. -1: filler value, can be ignored
+//          iii. -2: <ANY> token -> unsuppress all tokens except ones in constraint list
+//          iv.  -3: <NEXT_CONSTRAINT TOKEN>. -> allow next token
+//                   -> only for formal reasons added, can be ignored as this is already represented in the rules
 template <typename T>
 class SequentialConstraintsFSALogitsProcessor : public ILogitsProcessor<T> {
-  // This class is an FSA, but with following semantics:
-  // Unless max_length is reached:
-  // We apply the following:
-  //       * Suppress all tokens (not just the ones in the constraint list)
-  //       * Except the next token in the constraint list.
-  //       * Augment allowed tokens based on the grammar rules, the last token determines the grammar rule with allowed tokens
-  //       * the rules can contain:
-  //          i. vocab token id -> unsupress this token
-  //          ii. -1: filler value, can be ignored
-  //          iii. -2: <ANY> token -> unsuppress all tokens except ones in constraint list
-  //          iv.  -3: <NEXT_CONSTRAINT TOKEN>. -> allow next token
-  //                   -> only for formal reasons added, can be ignored as this is already represented in the rules
 
  public:
   SequentialConstraintsFSALogitsProcessor(
@@ -215,16 +213,22 @@ class SequentialConstraintsFSALogitsProcessor : public ILogitsProcessor<T> {
                NextTokenScores<T>& next_token_scores) override;
 
  private:
-  constexpr static int32_t MASKED_ = 0;
-  constexpr static int32_t ALLOWED_ = 1;
-  constexpr static int32_t ANY_RULE_ = -2;
   const gsl::span<const int32_t> constraints_;
   const gsl::span<const int32_t> grammar_;
   const int batch_beam_size_;
   const int vocab_size_;
   const int max_grammar_rule_length_;
   gsl::span<int32_t> next_constraint_indexes_;
-  gsl::span<int32_t> fixed_grammar_mask_span_;
+  gsl::span<bool> any_allowed_span_;
+  gsl::span<bool> next_constraint_allowed_span_;
+  gsl::span<bool> has_specific_allowed_tokens_span_;
+
+  int NextConstraint(int beam_index, int last_token);
+  void UpdateNextConstraintIndexes(const ISequences* sequences);
+  std::unordered_set<int32_t> GetMaskedWordIds(int last_token, int next_constraint);
+
+
+
 };
 
 

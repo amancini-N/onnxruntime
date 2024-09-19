@@ -19,6 +19,57 @@ Status BeamSearchParameters::Validate() const {
   return Status::OK();
 }
 
+
+// Status ProcessGrammarRules(
+//   std::vector<int>& grammar_rules,
+//   std::vector<int>& grammar_booleans,
+//   const int vocab_size
+//   const int max_grammar_rule_length,
+//   ) {
+//   const int MASKED_ = 0;
+
+//   for (int vocab_index = 0; vocab_index < vocab_size; vocab_index++) {
+//   // Not using above code, but for vectors:
+//   std::vector<int> grammar_rule_row(
+//       grammar_rules.begin() + vocab_index * max_grammar_rule_length,
+//       grammar_rules.begin() + (vocab_index+1) * max_grammar_rule_length
+//       );
+//   std::vector<int> rule_mask_row(vocab_size, 0);
+
+//   // check if -2 is in the grammar_rule_row if so, set all allowed otherwise none allowed
+//   if (std::find(grammar_rule_row.begin(), grammar_rule_row.end(), -2) != grammar_rule_row.end()) {
+//     std::fill_n(rule_mask_row.begin(), rule_mask_row.size(), 1);
+//   } else {
+//     std::fill_n(rule_mask_row.begin(), rule_mask_row.size(), 0);
+//   }
+
+//   // for (int j = 0; j < static_cast<int>(constraints.size()); j++) {
+//   //   rule_mask_span[constraints[j]] = MASKED_;
+//   // }
+
+//   // // now go over the rules, if it contains anything >= 0, set the mask value to _ALLOWED_
+//   // // in theory we shouldn't allow items in the constraint list/ raise error?
+//   // for (int rule_index = 0; rule_index < max_grammar_rule_length_; rule_index++) {
+//   //   if (rule_span[rule_index] >= 0) {
+//   //     rule_mask_span[rule_span[rule_index]] = ALLOWED_;
+//   //   }
+//   // }
+//   // // now we put it in the global span
+//   // for (int i = 0; i < vocab_size_; i++) {
+//   //   fixed_grammar_mask_span_[static_cast<gsl::index>(vocab_index) * vocab_size_ + i] = rule_mask_span[i];
+//   // }
+
+//   // go over constraints, set to  MASKED_ in rule_mask_row
+
+//   for (int j = 0; j < static_cast<int>(constraints.size()); j++) {
+//     rule_mask_row[constraints[j]] = MASKED_;
+//   }
+
+
+// }
+
+
+
 void BeamSearchParameters::ParseFromAttributes(const OpKernelInfo& info) {
   model_type = static_cast<int>(info.GetAttrOrDefault<int64_t>("model_type", IGenerationParameters::kModelTypeGpt));
   early_stopping = info.GetAttrOrDefault<int64_t>("early_stopping", 0) == 1;
@@ -33,6 +84,7 @@ void BeamSearchParameters::ParseFromAttributes(const OpKernelInfo& info) {
   fsa_grammar_shape.resize(2);
   ORT_THROW_IF_ERROR(Get2DAttrsOrDefault(info, "fsa_grammar", fsa_grammar_shape, fsa_grammar));
   max_grammar_rule_length = fsa_grammar_shape[1];
+
 }
 
 void BeamSearchParameters::ParseFromInputs(OpKernelContext* context) {
