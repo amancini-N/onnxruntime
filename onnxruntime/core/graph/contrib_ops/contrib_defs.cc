@@ -1151,7 +1151,7 @@ ONNX_MS_OPERATOR_SET_SCHEMA(BeamSearch, 1,
                                 .Attr("fsa_grammar",
                                       "A tensor of shape (vocab_size, N) where is N is the maximum rule length. "
                                       "Each row represents a list of rules with following values:"
-                                      "vocab_token_id>=0 -> allow this token in the vocabularly "
+                                      "vocab_token_id>=0 -> allow this token in the vocabulary "
                                       "-1: padding token to get all rule list to length N "
                                       "-2: Allow any token in the vocabulary (expect the ones in fsa_constraints)"
                                       "-3: Allow next token in constraint list",

@@ -25,15 +25,15 @@ struct NextTokenScores {
   int batch_beam_size;
   int vocab_size;
 
+  // get the scores for all tokens/vocab within one batch_beam.
   gsl::span<T> GetScores(int batch_beam_index) {
     assert(batch_beam_index >= 0 && batch_beam_index < batch_beam_size);
-    // get the scores for all tokens/vocab within one batch_beam.
     return scores.subspan(static_cast<gsl::index>(batch_beam_index) * vocab_size, vocab_size);
   }
 
+  // this sets the next_token_score of one vocab/token id for ALL batch_beams to the same score
+  // note that this is not mirrors the behavior of GetScore (which returns all vocab/token scores for a single batch_beam)
   void SetScore(int token_id, T score) {
-    // this sets the next_token_score of one vocab/token id for ALL batch_beams to the same score
-    // note that this is not mirrors the behavior of GetScore (which returns all vocab/token scores for a single batch_beam)
     assert(token_id >= 0 && token_id < vocab_size);
     for (int i = 0; i < batch_beam_size; i++) {
       scores[static_cast<gsl::index>(i) * vocab_size + token_id] = score;
@@ -41,6 +41,7 @@ struct NextTokenScores {
   }
 
 
+  // Apply a mask to all scores for tokens in the masked_word_ids set.
   void ApplyMask(int batch_beam_id, std::unordered_set<int32_t>& masked_word_ids) {
     assert(batch_beam_id >= 0 && batch_beam_id < batch_beam_size);
     for (int32_t token_id : masked_word_ids) {
