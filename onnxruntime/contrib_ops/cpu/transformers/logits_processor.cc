@@ -243,8 +243,8 @@ SequentialConstraintsFSALogitsProcessor<T>::SequentialConstraintsFSALogitsProces
       int PADDING_RULE_ = -1;
       int ANY_RULE_ = -2;
       int NEXT_RULE_ = -3;
-      assert(vocab_index * max_grammar_rule_length_ + max_grammar_rule_length_ <= static_cast<int>(grammar_.size()));
       for (int vocab_index = 0; vocab_index < vocab_size_; vocab_index++) {
+        assert(vocab_index * max_grammar_rule_length_ + max_grammar_rule_length_ <= static_cast<int>(grammar_.size()));
         gsl::span<const int32_t> rule_span = grammar_.subspan(vocab_index * max_grammar_rule_length_, max_grammar_rule_length_);
         // we go over the span
         for (int j = 0; j < max_grammar_rule_length_; j++) {
