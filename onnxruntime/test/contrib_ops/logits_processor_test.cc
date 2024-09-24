@@ -36,6 +36,7 @@ void callLogitProcessor(
     std::vector<std::vector<int32_t>> token_sequence_vectors,
     onnxruntime::contrib::transformers::ILogitsProcessor<T>* logit_processor
 ) {
+
     //token_sequence_vectors are expected to be {{token_0_beam_0, token_0_beam_1}, {token_1_beam_0, token_1_beam_1}, ..}
     int max_sequence_length = 100;
     // buffer is filled with 0 and has size batch_beam_size * max_length * 2
@@ -176,34 +177,6 @@ TEST(MaxLengthLogitsProcessor, MaxLengthNotReached) {
     ASSERT_NEAR(next_token_scores.GetScores(0)[0], 0.1, 0.0001);
 }
 
-template <typename T>
-void SequentialConstraintsFSALogitsTester(
-    int batch_beam_size,
-    onnxruntime::contrib::transformers::NextTokenScores<float> next_token_scores,
-    std::vector<std::vector<int32_t>> token_vectors,
-    onnxruntime::contrib::transformers::ILogitsProcessor<T>* logit_processor
-) {
-    int max_sequence_length = 100;
-    // buffer is filled with 0 and has size batch_beam_size * max_length * 2
-    std::vector<int32_t> buffer_v = std::vector<int32_t>(batch_beam_size * max_sequence_length * 2, 0);
-    gsl::span<int32_t> buffer_s(buffer_v);
-
-    // create ISequences object
-    int start_sequence_length = 0;
-    onnxruntime::contrib::transformers::Sequences sequences;
-    sequences.Init(buffer_s, batch_beam_size, start_sequence_length, max_sequence_length);
-    // adding all token vectors
-    for (auto token_vector : token_vectors) {
-        gsl::span<int> token_span(token_vector);
-        // this appends for each beam one token, and not all tokens for one beam...
-        sequences.AppendNextTokenToSequences(token_span);
-    }
-    onnxruntime::contrib::transformers::ISequences* sequences_pointer = &sequences;
-
-
-    logit_processor->Process(sequences_pointer, next_token_scores);
-}
-
 
 std::vector<std::vector<float>> SequentialConstraintsTestRunner(
     int batch_beam_size,
@@ -260,7 +233,7 @@ std::vector<std::vector<float>> SequentialConstraintsTestRunner(
     // we should pass next_token_scores, otherwise we provide fake values (we don't care about those)
     for (int current_sequence_max = 0; current_sequence_max < static_cast<int>(token_sequence_vectors.size()); current_sequence_max++) {
         if (current_sequence_max == static_cast<int>(token_sequence_vectors.size()) - 1) {
-            SequentialConstraintsFSALogitsTester(
+            callLogitProcessor(
                 batch_beam_size,
                 next_token_scores,
                 token_sequence_vectors,
@@ -290,7 +263,7 @@ std::vector<std::vector<float>> SequentialConstraintsTestRunner(
                 batch_beam_size,
                 vocab_size
                 });
-            SequentialConstraintsFSALogitsTester(
+            callLogitProcessor(
                 batch_beam_size,
                 fake_next_token_scores,
                 partial_token_sequence_vectors,

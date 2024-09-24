@@ -230,18 +230,15 @@ SequentialConstraintsFSALogitsProcessor<T>::SequentialConstraintsFSALogitsProces
       next_constraint_indexes_ = gsl::span<int32_t>(new int32_t[batch_beam_size_], batch_beam_size_);
       std::fill_n(next_constraint_indexes_.begin(), batch_beam_size_, 0);  // we point indexes to start constraint
 
-      // grammar_booleans indicate with first position for each vocab_size if we ANY is set
-      // and the second position if NEXT_CONSTRAINT is set
-      // has_specific_allowed_tokens indicate there is at least one specific token >= 0 in the grammar
-      // These boolean span allow for slightly faster processing
+      // following boolean span allow for slighlty faster processing (avoiding to go over grammar rule each time)
+      // now we only need to do that during Process if has_specific_allowed_token_span_[last_token] is true
       any_allowed_span_ = gsl::span<bool>(new bool[vocab_size_], vocab_size_);
       next_constraint_allowed_span_ = gsl::span<bool>(new bool[vocab_size_], vocab_size_);
       has_specific_allowed_tokens_span_ = gsl::span<bool>(new bool[vocab_size_], vocab_size_);
-      // we fill all with false
+
       std::fill_n(any_allowed_span_.begin(), vocab_size_, false);
       std::fill_n(next_constraint_allowed_span_.begin(), vocab_size_, false);
       std::fill_n(has_specific_allowed_tokens_span_.begin(), vocab_size_, false);
-
 
       int PADDING_RULE_ = -1;
       int ANY_RULE_ = -2;
