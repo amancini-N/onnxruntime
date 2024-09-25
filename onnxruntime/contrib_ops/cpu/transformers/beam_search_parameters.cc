@@ -30,8 +30,7 @@ void BeamSearchParameters::ParseFromAttributes(const OpKernelInfo& info) {
               "no_repeat_ngram_size and no_repeat_ngram_sizes cannot be specified at the same time");
   if (no_repeat_ngram_size_single == 0) {
     no_repeat_ngram_sizes = std::vector<int>(no_repeat_ngram_size_long.begin(), no_repeat_ngram_size_long.end());
-  }
-  else {
+  } else {
     no_repeat_ngram_sizes = {no_repeat_ngram_size_single};
   }
   no_repeat_ngram_history_a = static_cast<int>(info.GetAttrOrDefault<int64_t>("no_repeat_ngram_history_a", 0));

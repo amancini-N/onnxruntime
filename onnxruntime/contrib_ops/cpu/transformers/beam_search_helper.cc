@@ -30,7 +30,6 @@ Status Get2DAttrsOrDefault(const OpKernelInfo& kernel_info, const std::string& a
     }
 
     data = ONNX_NAMESPACE::ParseData<T>(&proto);
-
   }
   return Status::OK();
 }
@@ -39,6 +38,6 @@ Status Get2DAttrsOrDefault(const OpKernelInfo& info, const std::string& name, st
   return Get2DAttrsOrDefault(info, name, ONNX_NAMESPACE::TensorProto_DataType::TensorProto_DataType_INT32, shape, data);
 }
 
-} // namespace transformers
-} // namespace contrib
-} // namespace onnxruntime
+}  // namespace transformers
+}  // namespace contrib
+}  // namespace onnxruntime

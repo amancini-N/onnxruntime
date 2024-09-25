@@ -77,10 +77,8 @@ void RepetitionPenaltyLogitsProcessor<T>::Process(const ISequences* sequences,
 
 template <typename T>
 NoRepeatNGramLogitsProcessor<T>::NoRepeatNGramLogitsProcessor(
-  std::vector<int> ngram_size, int ngram_history_a, int ngram_history_b, int ngram_format_mode,
-  std::vector<int> ngram_format_tokens, int ngram_format_tokens_n_exclusions, int ngram_format_tokens_max_length
-  ) : ngram_size_(ngram_size), format_mode_(ngram_format_mode), format_tokens_(ngram_format_tokens),
-      format_tokens_num_exclusions_(ngram_format_tokens_n_exclusions), format_tokens_max_length_(ngram_format_tokens_max_length) {
+    std::vector<int> ngram_size, int ngram_history_a, int ngram_history_b, int ngram_format_mode,
+    std::vector<int> ngram_format_tokens, int ngram_format_tokens_n_exclusions, int ngram_format_tokens_max_length) : ngram_size_(ngram_size), format_mode_(ngram_format_mode), format_tokens_(ngram_format_tokens), format_tokens_num_exclusions_(ngram_format_tokens_n_exclusions), format_tokens_max_length_(ngram_format_tokens_max_length) {
   history_lengths_.resize(ngram_size.size());
   for (unsigned int i = 0; i < ngram_size.size(); i++) {
     history_lengths_[i] = ngram_history_a * ngram_size[i] + ngram_history_b;
@@ -115,16 +113,14 @@ bool NoRepeatNGramLogitsProcessor<T>::CheckFormatNGram(int ngram_size, gsl::span
       }
     }
     return true;
-  }
-  else if (format_mode_ == 1 && format_tokens_max_length_ == 1) {
+  } else if (format_mode_ == 1 && format_tokens_max_length_ == 1) {
     for (int i = 0; i < static_cast<int>(ngram.size()); i++) {
       if (format_tokens_unique_.find(ngram[i]) != format_tokens_unique_.end()) {
         return true;
       }
     }
     return false;
-  }
-  else if (format_mode_ == 1) {
+  } else if (format_mode_ == 1) {
     for (int i = 0; i < format_tokens_num_exclusions_; i++) {
       const int format_ngram_size = format_tokens_lengths_[i];
       auto format_tokens_as_span = AsSpan(format_tokens_);
@@ -160,23 +156,19 @@ bool NoRepeatNGramLogitsProcessor<T>::CheckFormatNGram(int ngram_size, gsl::span
       if (std::accumulate(convoluted.begin(), convoluted.end(), 0) == format_ngram_size) {
         return true;
       }
-
     }
-  }
-  else if (format_mode_ == 2) {
+  } else if (format_mode_ == 2) {
     if (std::find(format_tokens_.begin(), format_tokens_.end(), ngram.back()) != format_tokens_.end()) {
       return true;
     }
   }
 
   return false;
-
 }
 
 template <typename T>
 void NoRepeatNGramLogitsProcessor<T>::Process(const ISequences* sequences,
                                               NextTokenScores<T>& next_token_scores) {
-
   int batch_beam_size = next_token_scores.batch_beam_size;
   int config_length = static_cast<int>(ngram_size_.size());
   for (int c = 0; c < config_length; c++) {

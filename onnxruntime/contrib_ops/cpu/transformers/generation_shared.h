@@ -151,7 +151,7 @@ struct IGenerationParameters {
   std::vector<int> no_repeat_ngram_format_tokens;
   int no_repeat_ngram_format_tokens_num_exclusions;
   int no_repeat_ngram_format_tokens_max_exclusion_length;
-  int no_repeat_ngram_format_mode; // 0 for ALL method, 1 for ANY method, 2 for SIMPLE method
+  int no_repeat_ngram_format_mode;  // 0 for ALL method, 1 for ANY method, 2 for SIMPLE method
   bool early_stopping;
 
   // Parameters from inputs

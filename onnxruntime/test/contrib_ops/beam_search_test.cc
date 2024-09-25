@@ -396,11 +396,11 @@ TEST(BeamSearchTest, T5WithExtendedNGramBlocking) {
 
   tester.AddInput<int64_t>("src_tokens", {1, 10}, {4, 6, 5, 9, 7, 3, 3, 3, 3, 2});
   tester.AddOutput("tokens", {1, 3, 11}, {
-    //0, 1, 2, 3, 4, 5, 6, 7, 8, 9  // time step
-    2, 3, 3, 6, 6, 6, 6, 1, 1, 1, 1,   // 1
-    2, 3, 3, 6, 6, 6, 1, 1, 1, 1, 1,   // 2
-    2, 8, 8, 3, 3, 1, 1, 1, 1, 1, 1    // 3
-  });
+                                             // 0, 1, 2, 3, 4, 5, 6, 7, 8, 9  // time step
+                                             2, 3, 3, 6, 6, 6, 6, 1, 1, 1, 1,  // 1
+                                             2, 3, 3, 6, 6, 6, 1, 1, 1, 1, 1,  // 2
+                                             2, 8, 8, 3, 3, 1, 1, 1, 1, 1, 1   // 3
+                                         });
 #ifdef USE_CUDA
   tester.ConfigEp(DefaultCudaExecutionProvider());
 #endif
