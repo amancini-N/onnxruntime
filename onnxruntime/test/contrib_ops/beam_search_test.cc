@@ -395,7 +395,8 @@ TEST(BeamSearchTest, GptBeamSearchFp16_VocabPadded) {
 
 
 TEST(BeamSearchTest, SequentialConstraintsFSAModel) {
-  ModelTester tester(CurrentTestName(), ORT_TSTR("testdata/model_fsa_constraints.onnx"));
+  ModelTester tester(CurrentTestName(), ORT_TSTR("testdata/t5_with_fsa.onnx"));
+  t5_with_fsa.onnx
   // vocab -> grammar ->  reduced grammar   (-2 ANY, -3 NEXT, -1 Padding)
   // 0 <padding>  -> -2 -3 2  ->  ANY, NEXT, EOS
   // 1 <bos>  -> -2 -3 2  -> ANY, NEXT, EOS
