@@ -7,6 +7,9 @@
 #include "core/common/gsl.h"
 #include "core/session/onnxruntime_cxx_api.h"
 #include "test/common/cuda_op_test_utils.h"
+#include "test/providers/provider_test_utils.h"
+#include "test/providers/model_tester.h"
+#include "test/util/include/current_test_name.h"
 
 #ifdef USE_CUDA
 #include "core/providers/cuda/cuda_provider_options.h"
@@ -386,6 +389,22 @@ TEST(BeamSearchTest, GptBeamSearchFp16_VocabPadded) {
     auto result_span = gsl::make_span(result_vals, expected_output.size());
     ASSERT_TRUE(std::equal(expected_output.cbegin(), expected_output.cend(), result_span.begin(), result_span.end()));
   }
+}
+
+TEST(BeamSearchTest, T5WithExtendedNGramBlocking) {
+  ModelTester tester(CurrentTestName(), ORT_TSTR("testdata/t5_with_extended_ngram_blocking.onnx"));
+
+  tester.AddInput<int64_t>("src_tokens", {1, 10}, {4, 6, 5, 9, 7, 3, 3, 3, 3, 2});
+  tester.AddOutput("tokens", {1, 3, 11}, {
+    //0, 1, 2, 3, 4, 5, 6, 7, 8, 9  // time step
+    2, 3, 3, 6, 6, 6, 6, 1, 1, 1, 1,   // 1
+    2, 3, 3, 6, 6, 6, 1, 1, 1, 1, 1,   // 2
+    2, 8, 8, 3, 3, 1, 1, 1, 1, 1, 1    // 3
+  });
+#ifdef USE_CUDA
+  tester.ConfigEp(DefaultCudaExecutionProvider());
+#endif
+  tester.RunWithConfig();
 }
 
 }  // namespace test
