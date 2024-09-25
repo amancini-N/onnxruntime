@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include <vector>
 #include "core/common/gsl.h"
 #include "contrib_ops/cpu/transformers/generation_shared.h"
 
@@ -24,6 +25,8 @@ class Sequences : public ISequences {
 
   // Returns current sequence length.
   int GetSequenceLength() const override;
+
+  int GetPreviousBeamIndex(int beam_index) const override;
 
   // Returns max sequence length.
   int GetMaxLength() const override;
@@ -49,6 +52,8 @@ class Sequences : public ISequences {
   // Each AppendNextTokenToSequences call will trigger a rotation of active buffer.
   gsl::span<int32_t> sequences[2];
   gsl::span<int32_t> device_sequences[2];
+
+  std::vector<int32_t> previous_beam_index_;
 
   // Index (either 0 or 1) of two buffers that is currently is active.
   int current_sequences_buffer;

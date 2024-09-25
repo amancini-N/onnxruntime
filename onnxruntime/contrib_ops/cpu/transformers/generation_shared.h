@@ -5,6 +5,7 @@
 
 #include <utility>
 #include <random>
+#include <vector>
 #include "core/common/gsl.h"
 #include "core/framework/allocator.h"
 #include "contrib_ops/cpu/utils/console_dumper.h"
@@ -100,6 +101,9 @@ struct ISequences {
   virtual gsl::span<int32_t> GetNextDeviceSequences() = 0;                 // Get all next beam_index sequences in one continuous block (to pass to CUDA)
   virtual int GetSequenceLength() const = 0;
   virtual int GetMaxLength() const = 0;
+
+  // Get the beam index of the previous step the current beam is derived from
+  virtual int GetPreviousBeamIndex(int beam_index) const = 0;
 };
 
 struct ILogitsProcessorList {
@@ -146,6 +150,11 @@ struct IGenerationParameters {
   int pad_token_id;
   int decoder_start_token_id;
   int no_repeat_ngram_size;
+
+  std::vector<int32_t> fsa_constraints;
+  std::vector<int32_t> fsa_grammar;
+  int max_grammar_rule_length;
+
   bool early_stopping;
 
   // Parameters from inputs
