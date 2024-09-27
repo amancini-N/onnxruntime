@@ -1148,6 +1148,19 @@ ONNX_MS_OPERATOR_SET_SCHEMA(BeamSearch, 1,
                                 .Attr("no_repeat_ngram_history_b", "no repeat ngrams history b", AttributeProto::INT, static_cast<int64_t>(-1))
                                 .Attr("no_repeat_ngram_format_tokens", "no repeat ngrams format tokens", AttributeProto::TENSOR, OPTIONAL_VALUE)
                                 .Attr("no_repeat_ngram_format_mode", "no repeat ngrams format mode, 0 for ALL, 1 for ANY, 2 for SIMPLE", AttributeProto::INT, static_cast<int64_t>(0))
+                                .Attr("fsa_constraints",
+                                      "Should be an ordered list of token ids that wil sequentially be allowed to be generated othewise blocked",
+                                      AttributeProto::INTS,
+                                      std::vector<int64_t>())
+                                .Attr("fsa_grammar",
+                                      "A tensor of shape (vocab_size, N) where is N is the maximum rule length. "
+                                      "Each row represents a list of rules with following values:"
+                                      "vocab_token_id>=0 -> allow this token in the vocabulary "
+                                      "-1: padding token to get all rule list to length N "
+                                      "-2: Allow any token in the vocabulary (expect the ones in fsa_constraints)"
+                                      "-3: Allow next token in constraint list",
+                                      AttributeProto::TENSOR,
+                                      OPTIONAL_VALUE)
                                 .Attr("early_stopping", "early stop or not", AttributeProto::INT, static_cast<int64_t>(0))
                                 .Attr("model_type", "model type: 0 for GPT-2; 1 for encoder decoder like T5", AttributeProto::INT, static_cast<int64_t>(0))
                                 .Attr("encoder", "The subgraph for initialization of encoder and decoder. It will be called once before decoder subgraph.", AttributeProto::GRAPH, OPTIONAL_VALUE)

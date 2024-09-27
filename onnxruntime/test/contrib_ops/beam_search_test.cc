@@ -407,5 +407,34 @@ TEST(BeamSearchTest, T5WithExtendedNGramBlocking) {
   tester.RunWithConfig();
 }
 
+TEST(BeamSearchTest, SequentialConstraintsFSAModel) {
+  ModelTester tester(CurrentTestName(), ORT_TSTR("testdata/t5_with_fsa.onnx"));
+  // vocab -> grammar ->  reduced grammar   (-2 ANY, -3 NEXT, -1 Padding)
+  // 0 <padding>  -> -2 -3 2  ->  ANY, NEXT, EOS
+  // 1 <bos>  -> -2 -3 2  -> ANY, NEXT, EOS
+  // 2 <eos> -> 4 -1 -1  -> 4 (this)
+  // 3 <unk> -> -2 -3 2  -> ANY, NEXT, EOS
+  // 4 This  -> -2 -3 -1  -> ANY, NEXT
+  // 5 a  -> -2 -3 2  -> ANY, NEXT, EOS
+  // 6 is  -> -2 -3 -1  -> ANY, NEXT
+  // 7 for  -> -2 -3 2  -> ANY, NEXT, EOS
+  // 8 not  -> -2 -3 2  -> ANY, NEXT, EOS
+  // 9 sample  -> -2 -3 2 -> ANY, NEXT, EOS
+  // constraints:
+  // 4 6 6  -> This is is
+
+  tester.AddInput<int64_t>("src_tokens", {1, 10}, {4, 6, 5, 9, 7, 3, 3, 3, 3, 2});
+  tester.AddOutput("tokens", {1, 3, 11}, {
+                                             // 0, 1, 2, 3, 4, 5, 6, 7, 8, 9  // time step
+                                             2, 4, 3, 3, 3, 5, 3, 3, 7, 7, 1,  // 1
+                                             2, 4, 3, 3, 3, 5, 5, 5, 3, 3, 1,  // 2
+                                             2, 4, 3, 3, 3, 5, 5, 3, 3, 7, 1   // 3
+                                         });
+#ifdef USE_CUDA
+  tester.ConfigEp(DefaultCudaExecutionProvider());
+#endif
+  tester.RunWithConfig();
+}
+
 }  // namespace test
 }  // namespace onnxruntime

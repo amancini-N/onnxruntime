@@ -1,6 +1,7 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License.
 
+#include <vector>
 #include "contrib_ops/cpu/transformers/beam_search_parameters.h"
 #include "contrib_ops/cpu/transformers/beam_search_helper.h"
 
@@ -45,6 +46,12 @@ void BeamSearchParameters::ParseFromAttributes(const OpKernelInfo& info) {
   no_repeat_ngram_format_tokens_max_exclusion_length = format_tokens_shape[1];
 
   vocab_size = static_cast<int>(info.GetAttrOrDefault<int64_t>("vocab_size", -1));
+  std::vector<int64_t> fsa_constraints_uncast = info.GetAttrsOrDefault<int64_t>("fsa_constraints");
+  fsa_constraints = std::vector<int32_t>(fsa_constraints_uncast.begin(), fsa_constraints_uncast.end());
+  std::vector<int32_t> fsa_grammar_shape;
+  fsa_grammar_shape.resize(2);
+  ORT_THROW_IF_ERROR(Get2DAttrsOrDefault(info, "fsa_grammar", fsa_grammar_shape, fsa_grammar));
+  max_grammar_rule_length = fsa_grammar_shape[1];
 }
 
 void BeamSearchParameters::ParseFromInputs(OpKernelContext* context) {

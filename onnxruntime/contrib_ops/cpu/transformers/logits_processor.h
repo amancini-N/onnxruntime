@@ -18,19 +18,33 @@ namespace transformers {
 
 template <typename T>
 struct NextTokenScores {
+  // scores = [token_0_beam_0, ..., token_N_beam_0, token_0_beam_1, ..., token_N_beam_1, ... token_N_beam_U]
+  // N => vocab_size
+  // U => batch_beam_size
   gsl::span<T>& scores;
   int batch_beam_size;
   int vocab_size;
 
+  // get the scores for all tokens/vocab within one batch_beam.
   gsl::span<T> GetScores(int batch_beam_index) {
     assert(batch_beam_index >= 0 && batch_beam_index < batch_beam_size);
     return scores.subspan(static_cast<gsl::index>(batch_beam_index) * vocab_size, vocab_size);
   }
 
+  // this sets the next_token_score of one vocab/token id for ALL batch_beams to the same score
+  // note that this is not mirrors the behavior of GetScore (which returns all vocab/token scores for a single batch_beam)
   void SetScore(int token_id, T score) {
     assert(token_id >= 0 && token_id < vocab_size);
     for (int i = 0; i < batch_beam_size; i++) {
       scores[static_cast<gsl::index>(i) * vocab_size + token_id] = score;
+    }
+  }
+
+  // Apply a mask to all scores for tokens in the masked_word_ids set.
+  void ApplyMask(int batch_beam_id, std::unordered_set<int32_t>& masked_word_ids) {
+    assert(batch_beam_id >= 0 && batch_beam_id < batch_beam_size);
+    for (int32_t token_id : masked_word_ids) {
+      scores[batch_beam_id * vocab_size + token_id] = std::numeric_limits<T>::lowest();
     }
   }
 };
@@ -176,6 +190,47 @@ class PresencePenaltyLogitsProcessor : public ILogitsProcessor<T> {
  private:
   gsl::span<const int32_t> presence_mask_;
   float presence_penalty_;
+};
+
+// This class is an FSA, but with following semantics:
+// Unless max_length is reached:
+// We apply the following:
+//       * Suppress all tokens (not just the ones in the constraint list)
+//       * Except the next token in the constraint list.
+//       * Augment allowed tokens based on the grammar rules, the last token determines the grammar rule with allowed tokens
+//       * the rules can contain:
+//          i. vocab token id -> unsupress this token
+//          ii. -1: filler value, can be ignored
+//          iii. -2: <ANY> token -> unsuppress all tokens except ones in constraint list
+//          iv.  -3: <NEXT_CONSTRAINT TOKEN>. -> allow next token
+//                   -> only for formal reasons added, can be ignored as this is already represented in the rules
+template <typename T>
+class SequentialConstraintsFSALogitsProcessor : public ILogitsProcessor<T> {
+ public:
+  SequentialConstraintsFSALogitsProcessor(
+      const gsl::span<const int32_t>& constraints,
+      const gsl::span<const int32_t>& grammar,
+      int batch_beam_size,
+      int vocab_size,
+      int max_grammar_rule_length);
+
+  void Process(const ISequences* sequences,
+               NextTokenScores<T>& next_token_scores) override;
+
+ private:
+  const gsl::span<const int32_t> constraints_;
+  const gsl::span<const int32_t> grammar_;
+  const int batch_beam_size_;
+  const int vocab_size_;
+  const int max_grammar_rule_length_;
+  gsl::span<int32_t> next_constraint_indexes_;
+  gsl::span<bool> any_allowed_span_;
+  gsl::span<bool> next_constraint_allowed_span_;
+  gsl::span<bool> has_specific_allowed_tokens_span_;
+
+  int NextConstraint(int beam_index, int last_token);
+  void UpdateNextConstraintIndexes(const ISequences* sequences);
+  std::unordered_set<int32_t> GetMaskedWordIds(int last_token, int next_constraint);
 };
 
 template <typename T>
@@ -381,6 +436,17 @@ class LogitsProcessorList : public ILogitsProcessorList {
       processor_list_.push_back(presence_penalty_processor_.get());
     }
 
+    if (parameters.fsa_constraints.size() > 0) {
+      sequential_constraints_fsa_processor_ = std::make_unique<
+          SequentialConstraintsFSALogitsProcessor<float>>(
+          parameters.fsa_constraints,
+          parameters.fsa_grammar,
+          parameters.batch_size * parameters.num_beams,
+          parameters.max_grammar_rule_length,
+          parameters.vocab_size);
+      processor_list_.push_back(sequential_constraints_fsa_processor_.get());
+    }
+
     // Add timestamp processor for whisper model
     if (parameters.model_type == IGenerationParameters::kModelTypeWhisper && parameters.logits_processor == IGenerationParameters::kLogitsProcessorTypeWhisper) {
       constexpr int max_initial_timestamp_index = 50;
@@ -412,6 +478,7 @@ class LogitsProcessorList : public ILogitsProcessorList {
   std::unique_ptr<MaxLengthLogitsProcessor<float>> max_length_processor_;
   std::unique_ptr<TemperatureLogitsProcessor<float>> temperature_processor_;
   std::unique_ptr<PresencePenaltyLogitsProcessor<float>> presence_penalty_processor_;
+  std::unique_ptr<SequentialConstraintsFSALogitsProcessor<float>> sequential_constraints_fsa_processor_;
   std::unique_ptr<TimestampLogitsProcessor<float>> timestamp_processor_;
 };
 
