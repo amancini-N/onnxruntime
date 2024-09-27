@@ -15,7 +15,6 @@ namespace onnxruntime {
 namespace contrib {
 namespace transformers {
 
-
 // Interface for all scorers for beam search or beam sample.
 template <typename T>
 MinLengthLogitsProcessor<T>::MinLengthLogitsProcessor(int min_length, int eos_token_id)
@@ -31,19 +30,16 @@ void MinLengthLogitsProcessor<T>::Process(const ISequences* sequences,
   }
 }
 
-
 template <typename T>
 MaxLengthLogitsProcessor<T>::MaxLengthLogitsProcessor(int max_length, int eos_token_id)
     : max_length_(max_length), eos_token_id_(eos_token_id) {}
-
 
 // We have to emit EOS on the last possible position.
 // if we have reached the max length
 // set scores for all tokens but eos to lowest for each beam
 template <typename T>
 void MaxLengthLogitsProcessor<T>::Process(const ISequences* sequences,
-                                          NextTokenScores<T>& next_token_scores
-                                          ) {
+                                          NextTokenScores<T>& next_token_scores) {
   if (sequences->GetSequenceLength() >= max_length_ - 1) {
     for (int i = 0; i < next_token_scores.vocab_size; i++) {
       if (i != eos_token_id_) {
@@ -82,39 +78,151 @@ void RepetitionPenaltyLogitsProcessor<T>::Process(const ISequences* sequences,
 }
 
 template <typename T>
-NoRepeatNGramLogitsProcessor<T>::NoRepeatNGramLogitsProcessor(int ngram_size) : ngram_size_(ngram_size) {
+NoRepeatNGramLogitsProcessor<T>::NoRepeatNGramLogitsProcessor(
+    std::vector<int> ngram_size, int ngram_history_a, int ngram_history_b, int ngram_format_mode,
+    std::vector<int> ngram_format_tokens, int ngram_format_tokens_n_exclusions, int ngram_format_tokens_max_length) : ngram_size_(ngram_size), format_mode_(ngram_format_mode), format_tokens_(ngram_format_tokens), format_tokens_num_exclusions_(ngram_format_tokens_n_exclusions), format_tokens_max_length_(ngram_format_tokens_max_length) {
+  history_lengths_.resize(ngram_size.size());
+  for (unsigned int i = 0; i < ngram_size.size(); i++) {
+    history_lengths_[i] = ngram_history_a * ngram_size[i] + ngram_history_b;
+  }
+  format_tokens_unique_ = std::unordered_set<int>(format_tokens_.begin(), format_tokens_.end());
+  format_tokens_lengths_.resize(format_tokens_num_exclusions_);
+  // Count padding in tokens (0). Compute lengths
+  for (int i = 0; i < format_tokens_num_exclusions_; i++) {
+    format_tokens_lengths_[i] = format_tokens_max_length_ - std::count(format_tokens_.begin() + i * format_tokens_max_length_,
+                                                                       format_tokens_.begin() + (i + 1) * format_tokens_max_length_, 0);
+  }
+}
+
+// Check if ngram is a format sequence, if so, ignore it.
+// format mode is 0 for ALL method, 1 for ANY method, 2 for SIMPLE method
+// In ALL method, we match a complete ngram against the format tokens.
+// In ANY method, we match any token in the ngram against the format tokens.
+// In SIMPLE method, we match the last token in the ngram against the format tokens.
+template <typename T>
+bool NoRepeatNGramLogitsProcessor<T>::CheckFormatNGram(int ngram_size, gsl::span<const int32_t> ngram) {
+  ORT_UNUSED_PARAMETER(ngram_size);
+  if (format_tokens_.empty()) {
+    return false;
+  }
+
+  if (format_mode_ == 0) {
+    for (int i = 0; i < static_cast<int>(ngram.size()); i++) {
+      if (format_mode_ == 0) {
+        if (format_tokens_unique_.find(ngram[i]) == format_tokens_unique_.end()) {
+          return false;
+        }
+      }
+    }
+    return true;
+  } else if (format_mode_ == 1 && format_tokens_max_length_ == 1) {
+    for (int i = 0; i < static_cast<int>(ngram.size()); i++) {
+      if (format_tokens_unique_.find(ngram[i]) != format_tokens_unique_.end()) {
+        return true;
+      }
+    }
+    return false;
+  } else if (format_mode_ == 1) {
+    for (int i = 0; i < format_tokens_num_exclusions_; i++) {
+      const int format_ngram_size = format_tokens_lengths_[i];
+      auto format_tokens_as_span = AsSpan(format_tokens_);
+      auto format_ngram = format_tokens_as_span.subspan(i * format_tokens_max_length_, format_ngram_size);
+      // check presence of format_ngram in ngram and save it
+      std::vector<bool> ngram_isin(ngram.size(), false);
+      for (int j = 0; j < static_cast<int>(ngram.size()); j++) {
+        if (std::find(format_ngram.begin(), format_ngram.end(), ngram[j]) != format_ngram.end()) {
+          ngram_isin[j] = true;
+        }
+      }
+
+      // convolute ngram_isin with ones vector of length format_ngram_size
+      const int conv_out_size = static_cast<int>(ngram.size() - format_ngram_size + 1);
+      std::vector<int> convoluted(conv_out_size, 0);
+      const int m = static_cast<int>(format_ngram_size) / 2;
+      for (int j = 0; j < conv_out_size; j++) {
+        for (int k = 0; k < static_cast<int>(format_ngram_size); k++) {
+          if (j - k + m >= 0) {
+            convoluted[j] += ngram_isin[j - k + m];
+          }
+        }
+      }
+
+      // neglect elements in convoluted that are less than format_ngam.size()
+      for (int j = 0; j < conv_out_size; j++) {
+        if (convoluted[j] != format_ngram_size) {
+          convoluted[j] = 0;
+        }
+      }
+
+      // true if sum of convoluted is equal to format_ngram_size
+      if (std::accumulate(convoluted.begin(), convoluted.end(), 0) == format_ngram_size) {
+        return true;
+      }
+    }
+  } else if (format_mode_ == 2) {
+    if (std::find(format_tokens_.begin(), format_tokens_.end(), ngram.back()) != format_tokens_.end()) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 template <typename T>
 void NoRepeatNGramLogitsProcessor<T>::Process(const ISequences* sequences,
                                               NextTokenScores<T>& next_token_scores) {
-  if (ngram_size_ == 0 || ngram_size_ > sequences->GetSequenceLength()) {
-    return;
-  }
-
-  const gsl::index prefix_length = static_cast<gsl::index>(ngram_size_) - 1;
   int batch_beam_size = next_token_scores.batch_beam_size;
+  int config_length = static_cast<int>(ngram_size_.size());
+  for (int c = 0; c < config_length; c++) {
+    int ngram = ngram_size_[c];
+    if (ngram == 0 || ngram >= sequences->GetSequenceLength()) {
+      continue;
+    }
+    int history_length = history_lengths_[c];
 
-  for (int i = 0; i < batch_beam_size; i++) {
-    gsl::span<T> beam_token_scores = next_token_scores.GetScores(i);
-    gsl::span<const int32_t> sequence = sequences->GetSequence(i);
+    gsl::index prefix_length = static_cast<gsl::index>(ngram) - 1;
+    // We assume history_length is sorted
+    if (c > 0) {
+      int prefix_to_increase = history_lengths_[c - 1] - ngram + 1;
+      prefix_length += prefix_to_increase;
+    }
+    const int seq_len = sequences->GetSequenceLength();
+    if (seq_len > history_length && history_length > 0) {
+      prefix_length += history_length - seq_len;
+    }
 
-    gsl::span<const int32_t> prefix = sequence.subspan(sequence.size() - prefix_length);
-    ORT_ENFORCE(prefix.size() == narrow<size_t>(prefix_length));
+    if (seq_len <= prefix_length) {
+      continue;
+    }
 
-    std::unordered_set<int32_t> blocked_word_ids;
-    for (int j = 0; j <= static_cast<int>(sequence.size()) - ngram_size_; j++) {
-      // Here we use naive algorithm for matching. The complexity is O(batch_beam_size * ngram_size * sequence_length)
-      // TODO(tianleiwu): build N-Gram index (hash table with prefix of length NGram - 1 as key,
-      //                  and list of last word of NGram as value) for fast matching.
-      if (ngram_size_ == 1 || SpanEq(prefix, sequence.subspan(j, prefix_length))) {
-        blocked_word_ids.insert(sequence[static_cast<gsl::index>(j) + prefix_length]);
+    for (int i = 0; i < batch_beam_size; i++) {
+      gsl::span<T> beam_token_scores = next_token_scores.GetScores(i);
+      gsl::span<const int32_t> sequence = sequences->GetSequence(i);
+      if (seq_len > history_length && history_length > 0) {
+        sequence = sequence.subspan(seq_len - history_length);
+      }
+
+      gsl::span<const int32_t> prefix = sequence.subspan(seq_len - prefix_length);
+      ORT_ENFORCE(prefix.size() == narrow<size_t>(prefix_length));
+
+      std::unordered_set<int32_t> blocked_word_ids;
+      for (int j = 0; j <= static_cast<int>(sequence.size()) - ngram; j++) {
+        // Here we use naive algorithm for matching. The complexity is O(batch_beam_size * ngram_size * sequence_length)
+        // TODO(tianleiwu): build N-Gram index (hash table with prefix of length NGram - 1 as key,
+        //                  and list of last word of NGram as value) for fast matching.
+        if ((ngram == 1 || SpanEq(prefix, sequence.subspan(j, prefix_length))) && !CheckFormatNGram(ngram, sequence.subspan(j, ngram))) {
+          blocked_word_ids.insert(sequence[static_cast<gsl::index>(j) + prefix_length]);
+        }
+      }
+
+      for (const int32_t word_id : blocked_word_ids) {
+        beam_token_scores[word_id] = std::numeric_limits<T>::lowest();
       }
     }
 
-    for (const int32_t word_id : blocked_word_ids) {
-      beam_token_scores[word_id] = std::numeric_limits<T>::lowest();
-    }
+#ifdef DEBUG_GENERATION
+    DumpScores("NoRepeatNGramLogitsProcessor", next_token_scores);
+#endif
   }
 }
 
@@ -211,83 +319,76 @@ void PresencePenaltyLogitsProcessor<T>::Process(const ISequences*,
   }
 }
 
-
-
 template <typename T>
 SequentialConstraintsFSALogitsProcessor<T>::SequentialConstraintsFSALogitsProcessor(
     const gsl::span<const int32_t>& constraints,
     const gsl::span<const int32_t>& grammar,
     int batch_beam_size,
     int max_grammar_rule_length,
-    int vocab_size
-)   : constraints_(constraints),
-      grammar_(grammar),
-      batch_beam_size_(batch_beam_size),
-      vocab_size_(vocab_size),
-      max_grammar_rule_length_(max_grammar_rule_length)
-     {
-      assert(static_cast<int>(grammar_.size()) == vocab_size_ * max_grammar_rule_length_);
-      next_constraint_indexes_ = gsl::span<int32_t>(new int32_t[batch_beam_size_], batch_beam_size_);
-      std::fill_n(next_constraint_indexes_.begin(), batch_beam_size_, 0);  // we point indexes to start constraint
+    int vocab_size) : constraints_(constraints),
+                      grammar_(grammar),
+                      batch_beam_size_(batch_beam_size),
+                      vocab_size_(vocab_size),
+                      max_grammar_rule_length_(max_grammar_rule_length) {
+  assert(static_cast<int>(grammar_.size()) == vocab_size_ * max_grammar_rule_length_);
+  next_constraint_indexes_ = gsl::span<int32_t>(new int32_t[batch_beam_size_], batch_beam_size_);
+  std::fill_n(next_constraint_indexes_.begin(), batch_beam_size_, 0);  // we point indexes to start constraint
 
-      // following boolean span allow for slighlty faster processing (avoiding to go over grammar rule each time)
-      // now we only need to do that during Process if has_specific_allowed_token_span_[last_token] is true
-      any_allowed_span_ = gsl::span<bool>(new bool[vocab_size_], vocab_size_);
-      next_constraint_allowed_span_ = gsl::span<bool>(new bool[vocab_size_], vocab_size_);
-      has_specific_allowed_tokens_span_ = gsl::span<bool>(new bool[vocab_size_], vocab_size_);
+  // following boolean span allow for slighlty faster processing (avoiding to go over grammar rule each time)
+  // now we only need to do that during Process if has_specific_allowed_token_span_[last_token] is true
+  any_allowed_span_ = gsl::span<bool>(new bool[vocab_size_], vocab_size_);
+  next_constraint_allowed_span_ = gsl::span<bool>(new bool[vocab_size_], vocab_size_);
+  has_specific_allowed_tokens_span_ = gsl::span<bool>(new bool[vocab_size_], vocab_size_);
 
-      std::fill_n(any_allowed_span_.begin(), vocab_size_, false);
-      std::fill_n(next_constraint_allowed_span_.begin(), vocab_size_, false);
-      std::fill_n(has_specific_allowed_tokens_span_.begin(), vocab_size_, false);
+  std::fill_n(any_allowed_span_.begin(), vocab_size_, false);
+  std::fill_n(next_constraint_allowed_span_.begin(), vocab_size_, false);
+  std::fill_n(has_specific_allowed_tokens_span_.begin(), vocab_size_, false);
 
-      int PADDING_RULE_ = -1;
-      int ANY_RULE_ = -2;
-      int NEXT_RULE_ = -3;
-      for (int vocab_index = 0; vocab_index < vocab_size_; vocab_index++) {
-        assert(vocab_index * max_grammar_rule_length_ + max_grammar_rule_length_ <= static_cast<int>(grammar_.size()));
-        gsl::span<const int32_t> rule_span = grammar_.subspan(vocab_index * max_grammar_rule_length_, max_grammar_rule_length_);
-        // we go over the span
-        for (int j = 0; j < max_grammar_rule_length_; j++) {
-          int32_t token_id = rule_span[j];
-          if (token_id == PADDING_RULE_) {
-            break;
-          } else if (token_id == ANY_RULE_) {
-            any_allowed_span_[vocab_index] = true;
-          } else if (token_id == NEXT_RULE_) {
-            next_constraint_allowed_span_[vocab_index] = true;
-          } else {
-            has_specific_allowed_tokens_span_[vocab_index] = true;
-          }
-        }
+  int PADDING_RULE_ = -1;
+  int ANY_RULE_ = -2;
+  int NEXT_RULE_ = -3;
+  for (int vocab_index = 0; vocab_index < vocab_size_; vocab_index++) {
+    assert(vocab_index * max_grammar_rule_length_ + max_grammar_rule_length_ <= static_cast<int>(grammar_.size()));
+    gsl::span<const int32_t> rule_span = grammar_.subspan(vocab_index * max_grammar_rule_length_, max_grammar_rule_length_);
+    // we go over the span
+    for (int j = 0; j < max_grammar_rule_length_; j++) {
+      int32_t token_id = rule_span[j];
+      if (token_id == PADDING_RULE_) {
+        break;
+      } else if (token_id == ANY_RULE_) {
+        any_allowed_span_[vocab_index] = true;
+      } else if (token_id == NEXT_RULE_) {
+        next_constraint_allowed_span_[vocab_index] = true;
+      } else {
+        has_specific_allowed_tokens_span_[vocab_index] = true;
       }
-
+    }
+  }
 }
-
 
 template <typename T>
 int SequentialConstraintsFSALogitsProcessor<T>::NextConstraint(int beam_index, int last_token) {
-    int next_constraint = -1;
-    int next_constraint_index = next_constraint_indexes_[beam_index];
-    // -1 for next_constraint index means that we already reached the end of the constraints before
-    if( next_constraint_index != -1){
+  int next_constraint = -1;
+  int next_constraint_index = next_constraint_indexes_[beam_index];
+  // -1 for next_constraint index means that we already reached the end of the constraints before
+  if (next_constraint_index != -1) {
+    next_constraint = constraints_[next_constraint_index];
+  }
+
+  // update pointer and get next_constraint if we have hit the next constraint
+  // if we were already at the last possible constraint, set the pointer to -1 and next_constraint to -1
+  if (next_constraint == last_token) {
+    next_constraint_indexes_[beam_index]++;
+    next_constraint_index = next_constraint_indexes_[beam_index];
+    if (next_constraint_index >= static_cast<int>(constraints_.size())) {
+      next_constraint_indexes_[beam_index] = -1;
+      next_constraint = -1;
+    } else {
       next_constraint = constraints_[next_constraint_index];
     }
-
-    // update pointer and get next_constraint if we have hit the next constraint
-    // if we were already at the last possible constraint, set the pointer to -1 and next_constraint to -1
-    if (next_constraint == last_token) {
-      next_constraint_indexes_[beam_index]++;
-      next_constraint_index = next_constraint_indexes_[beam_index];
-      if (next_constraint_index >= static_cast<int>(constraints_.size())) {
-        next_constraint_indexes_[beam_index] = -1;
-        next_constraint = -1;
-      } else {
-        next_constraint = constraints_[next_constraint_index];
-      }
-    }
-    return next_constraint;
+  }
+  return next_constraint;
 }
-
 
 template <typename T>
 void SequentialConstraintsFSALogitsProcessor<T>::UpdateNextConstraintIndexes(const ISequences* sequences) {
@@ -300,49 +401,46 @@ void SequentialConstraintsFSALogitsProcessor<T>::UpdateNextConstraintIndexes(con
   std::copy(new_next_constraint_indexes.begin(), new_next_constraint_indexes.end(), next_constraint_indexes_.begin());
 }
 
-
 template <typename T>
 std::unordered_set<int32_t> SequentialConstraintsFSALogitsProcessor<T>::GetMaskedWordIds(int last_token, int next_constraint) {
-    std::unordered_set<int32_t> masked_word_ids;
+  std::unordered_set<int32_t> masked_word_ids;
 
-    // if any is set, we only start with blocking the constraint token ids
-    // otherwise we start with maskin all all
-    if (any_allowed_span_[last_token]) {
-      for (int i = 0; i < static_cast<int>(constraints_.size()); i++) {
-          masked_word_ids.insert(constraints_[i]);
-      }
-    } else {
-      for (int i = 0; i < vocab_size_; i++) {
-          masked_word_ids.insert(i);
-      }
+  // if any is set, we only start with blocking the constraint token ids
+  // otherwise we start with maskin all all
+  if (any_allowed_span_[last_token]) {
+    for (int i = 0; i < static_cast<int>(constraints_.size()); i++) {
+      masked_word_ids.insert(constraints_[i]);
     }
-
-    // if we can use next constraint token, we remove it from the masked word ids
-    if (next_constraint_allowed_span_[last_token]){
-      masked_word_ids.erase(next_constraint);
+  } else {
+    for (int i = 0; i < vocab_size_; i++) {
+      masked_word_ids.insert(i);
     }
+  }
 
-    // we go over token_id in grammar_, if token_id>=0 , remove from masked_word_ids
-    // we check the has_specific_allowed_tokens_span_ to see if we need to go over the grammar
-    if (has_specific_allowed_tokens_span_[last_token]) {
-      gsl::span<const int32_t> grammar_subspan = grammar_.subspan(last_token * max_grammar_rule_length_, max_grammar_rule_length_);
-      for (int j = 0; j < max_grammar_rule_length_; j++) {
-        int32_t token_id = grammar_subspan[j];
-        if (token_id >= 0) {
-          masked_word_ids.erase(token_id);
-        }
-        else if (token_id == -1) {
-          break;
-        }
+  // if we can use next constraint token, we remove it from the masked word ids
+  if (next_constraint_allowed_span_[last_token]) {
+    masked_word_ids.erase(next_constraint);
+  }
+
+  // we go over token_id in grammar_, if token_id>=0 , remove from masked_word_ids
+  // we check the has_specific_allowed_tokens_span_ to see if we need to go over the grammar
+  if (has_specific_allowed_tokens_span_[last_token]) {
+    gsl::span<const int32_t> grammar_subspan = grammar_.subspan(last_token * max_grammar_rule_length_, max_grammar_rule_length_);
+    for (int j = 0; j < max_grammar_rule_length_; j++) {
+      int32_t token_id = grammar_subspan[j];
+      if (token_id >= 0) {
+        masked_word_ids.erase(token_id);
+      } else if (token_id == -1) {
+        break;
       }
     }
-    return masked_word_ids;
+  }
+  return masked_word_ids;
 }
-
 
 template <typename T>
 void SequentialConstraintsFSALogitsProcessor<T>::Process(const ISequences* sequences,
-                                          NextTokenScores<T>& next_token_scores) {
+                                                         NextTokenScores<T>& next_token_scores) {
   UpdateNextConstraintIndexes(sequences);
   for (int beam_index = 0; beam_index < batch_beam_size_; beam_index++) {
     gsl::span<const int32_t> sequence = sequences->GetSequence(beam_index);
@@ -353,12 +451,11 @@ void SequentialConstraintsFSALogitsProcessor<T>::Process(const ISequences* seque
 
     next_token_scores.ApplyMask(beam_index, masked_word_ids);
 
-    #ifdef DEBUG_GENERATION
-      DumpScores("SequentialConstraintsFSALogitsProcessor", next_token_scores);
-    #endif
+#ifdef DEBUG_GENERATION
+    DumpScores("SequentialConstraintsFSALogitsProcessor", next_token_scores);
+#endif
   }
 }
-
 
 void LogitsProcessorList::Init(const BeamSearchParameters& parameters) {
   LogitsProcessorInitImpl<BeamSearchParameters>(parameters);

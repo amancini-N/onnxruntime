@@ -76,7 +76,7 @@ void Sequences::AppendNextTokenToSequences(
     output[SafeInt<size_t>(i) * max_length_ + current_length_] = beam_next_tokens[i];
 
     // add memory about parent beam
-    previous_beam_index_[i]  = beam_index;
+    previous_beam_index_[i] = beam_index;
   }
 
   ++current_length_;

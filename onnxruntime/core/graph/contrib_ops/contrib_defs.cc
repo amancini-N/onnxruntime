@@ -1143,7 +1143,11 @@ ONNX_MS_OPERATOR_SET_SCHEMA(BeamSearch, 1,
                                 .Attr("pad_token_id", "The id of the padding token", AttributeProto::INT)
                                 .Attr("decoder_start_token_id", "The id of the token that indicates decoding starts.", AttributeProto::INT, static_cast<int64_t>(-1))
                                 .Attr("no_repeat_ngram_size", "no repeat ngrams size", AttributeProto::INT, static_cast<int64_t>(0))
-
+                                .Attr("no_repeat_ngram_sizes", "In case multiple ngram sizes should be used", AttributeProto::INTS, std::vector<int64_t>())
+                                .Attr("no_repeat_ngram_history_a", "no repeat ngrams history a", AttributeProto::INT, static_cast<int64_t>(0))
+                                .Attr("no_repeat_ngram_history_b", "no repeat ngrams history b", AttributeProto::INT, static_cast<int64_t>(-1))
+                                .Attr("no_repeat_ngram_format_tokens", "no repeat ngrams format tokens", AttributeProto::TENSOR, OPTIONAL_VALUE)
+                                .Attr("no_repeat_ngram_format_mode", "no repeat ngrams format mode, 0 for ALL, 1 for ANY, 2 for SIMPLE", AttributeProto::INT, static_cast<int64_t>(0))
                                 .Attr("fsa_constraints",
                                       "Should be an ordered list of token ids that wil sequentially be allowed to be generated othewise blocked",
                                       AttributeProto::INTS,
@@ -1157,7 +1161,6 @@ ONNX_MS_OPERATOR_SET_SCHEMA(BeamSearch, 1,
                                       "-3: Allow next token in constraint list",
                                       AttributeProto::TENSOR,
                                       OPTIONAL_VALUE)
-
                                 .Attr("early_stopping", "early stop or not", AttributeProto::INT, static_cast<int64_t>(0))
                                 .Attr("model_type", "model type: 0 for GPT-2; 1 for encoder decoder like T5", AttributeProto::INT, static_cast<int64_t>(0))
                                 .Attr("encoder", "The subgraph for initialization of encoder and decoder. It will be called once before decoder subgraph.", AttributeProto::GRAPH, OPTIONAL_VALUE)
@@ -1215,7 +1218,6 @@ ONNX_MS_OPERATOR_SET_SCHEMA(WhisperBeamSearch, 1,
                                       AttributeProto::INT, OPTIONAL_VALUE)
                                 .Attr("no_timestamps_token_id", "The id of the token that indicates no timestamps", AttributeProto::INT, OPTIONAL_VALUE)
                                 .Attr("beginning_timestamp_token_id", "The id of the first timestamp", AttributeProto::INT, OPTIONAL_VALUE)
-                                .Attr("no_repeat_ngram_size", "no repeat ngrams size", AttributeProto::INT, static_cast<int64_t>(0))
                                 .Attr("early_stopping", "early stop or not", AttributeProto::INT, static_cast<int64_t>(0))
                                 .Attr("model_type", "Must be 2 for whisper", AttributeProto::INT, static_cast<int64_t>(2))
                                 .Attr("encoder", "The subgraph for initialization of encoder and decoder. It will be called once before decoder subgraph.", AttributeProto::GRAPH, OPTIONAL_VALUE)

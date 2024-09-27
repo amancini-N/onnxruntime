@@ -40,7 +40,6 @@ struct NextTokenScores {
     }
   }
 
-
   // Apply a mask to all scores for tokens in the masked_word_ids set.
   void ApplyMask(int batch_beam_id, std::unordered_set<int32_t>& masked_word_ids) {
     assert(batch_beam_id >= 0 && batch_beam_id < batch_beam_size);
@@ -49,7 +48,6 @@ struct NextTokenScores {
     }
   }
 };
-
 
 #ifdef DEBUG_GENERATION
 template <typename T>
@@ -110,13 +108,22 @@ class RepetitionPenaltyLogitsProcessor : public ILogitsProcessor<T> {
 template <typename T>
 class NoRepeatNGramLogitsProcessor : public ILogitsProcessor<T> {
  public:
-  NoRepeatNGramLogitsProcessor(int ngram_size);
+  NoRepeatNGramLogitsProcessor(std::vector<int> ngram_size, int ngram_history_a, int ngram_history_b, int ngram_format_mode, std::vector<int> ngram_format_tokens, int ngram_format_tokens_n_exclusions, int ngram_format_tokens_max_length);
 
   void Process(const ISequences* sequences,
                NextTokenScores<T>& next_token_scores) override;
 
  private:
-  int ngram_size_;
+  bool CheckFormatNGram(int ngram_size, gsl::span<const int32_t> ngram);
+
+  std::vector<int> ngram_size_;
+  std::vector<int> history_lengths_;
+  int format_mode_;
+  std::vector<int> format_tokens_;
+  std::vector<int> format_tokens_lengths_;
+  std::unordered_set<int> format_tokens_unique_;
+  int format_tokens_num_exclusions_;
+  int format_tokens_max_length_;
 };
 
 template <typename T>
@@ -185,7 +192,6 @@ class PresencePenaltyLogitsProcessor : public ILogitsProcessor<T> {
   float presence_penalty_;
 };
 
-
 // This class is an FSA, but with following semantics:
 // Unless max_length is reached:
 // We apply the following:
@@ -200,15 +206,13 @@ class PresencePenaltyLogitsProcessor : public ILogitsProcessor<T> {
 //                   -> only for formal reasons added, can be ignored as this is already represented in the rules
 template <typename T>
 class SequentialConstraintsFSALogitsProcessor : public ILogitsProcessor<T> {
-
  public:
   SequentialConstraintsFSALogitsProcessor(
-    const gsl::span<const int32_t>& constraints,
-    const gsl::span<const int32_t>& grammar,
-    int batch_beam_size,
-    int vocab_size,
-    int max_grammar_rule_length
-    );
+      const gsl::span<const int32_t>& constraints,
+      const gsl::span<const int32_t>& grammar,
+      int batch_beam_size,
+      int vocab_size,
+      int max_grammar_rule_length);
 
   void Process(const ISequences* sequences,
                NextTokenScores<T>& next_token_scores) override;
@@ -227,11 +231,7 @@ class SequentialConstraintsFSALogitsProcessor : public ILogitsProcessor<T> {
   int NextConstraint(int beam_index, int last_token);
   void UpdateNextConstraintIndexes(const ISequences* sequences);
   std::unordered_set<int32_t> GetMaskedWordIds(int last_token, int next_constraint);
-
-
-
 };
-
 
 template <typename T>
 class TimestampLogitsProcessor : public ILogitsProcessor<T> {
@@ -389,9 +389,14 @@ class LogitsProcessorList : public ILogitsProcessorList {
       processor_list_.push_back(repetition_penalty_processor_.get());
     }
 
-    if (parameters.no_repeat_ngram_size > 0) {
-      no_repeat_ngram_processor_ = std::make_unique<
-          NoRepeatNGramLogitsProcessor<float>>(parameters.no_repeat_ngram_size);
+    if (parameters.no_repeat_ngram_sizes.size() > 0) {
+      no_repeat_ngram_processor_ = std::make_unique<NoRepeatNGramLogitsProcessor<float>>(parameters.no_repeat_ngram_sizes,
+                                                                                         parameters.no_repeat_ngram_history_a,
+                                                                                         parameters.no_repeat_ngram_history_b,
+                                                                                         parameters.no_repeat_ngram_format_mode,
+                                                                                         parameters.no_repeat_ngram_format_tokens,
+                                                                                         parameters.no_repeat_ngram_format_tokens_num_exclusions,
+                                                                                         parameters.no_repeat_ngram_format_tokens_max_exclusion_length);
       processor_list_.push_back(no_repeat_ngram_processor_.get());
     }
 
@@ -432,14 +437,13 @@ class LogitsProcessorList : public ILogitsProcessorList {
     }
 
     if (parameters.fsa_constraints.size() > 0) {
-
       sequential_constraints_fsa_processor_ = std::make_unique<
           SequentialConstraintsFSALogitsProcessor<float>>(
-            parameters.fsa_constraints,
-            parameters.fsa_grammar,
-            parameters.batch_size * parameters.num_beams,
-            parameters.max_grammar_rule_length,
-            parameters.vocab_size);
+          parameters.fsa_constraints,
+          parameters.fsa_grammar,
+          parameters.batch_size * parameters.num_beams,
+          parameters.max_grammar_rule_length,
+          parameters.vocab_size);
       processor_list_.push_back(sequential_constraints_fsa_processor_.get());
     }
 

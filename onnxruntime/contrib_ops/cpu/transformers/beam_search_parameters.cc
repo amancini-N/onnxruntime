@@ -19,14 +19,32 @@ Status BeamSearchParameters::Validate() const {
   return Status::OK();
 }
 
-
 void BeamSearchParameters::ParseFromAttributes(const OpKernelInfo& info) {
   model_type = static_cast<int>(info.GetAttrOrDefault<int64_t>("model_type", IGenerationParameters::kModelTypeGpt));
   early_stopping = info.GetAttrOrDefault<int64_t>("early_stopping", 0) == 1;
   eos_token_id = static_cast<int>(info.GetAttrOrDefault<int64_t>("eos_token_id", -1));
   pad_token_id = static_cast<int>(info.GetAttrOrDefault<int64_t>("pad_token_id", -1));
   decoder_start_token_id = static_cast<int>(info.GetAttrOrDefault<int64_t>("decoder_start_token_id", -1));
-  no_repeat_ngram_size = static_cast<int>(info.GetAttrOrDefault<int64_t>("no_repeat_ngram_size", 0));
+  auto no_repeat_ngram_size_single = static_cast<int>(info.GetAttrOrDefault<int64_t>("no_repeat_ngram_size", 0));
+  std::vector<int64_t> no_repeat_ngram_size_long = info.GetAttrsOrDefault<int64_t>("no_repeat_ngram_sizes");
+  ORT_ENFORCE(no_repeat_ngram_size_single == 0 || no_repeat_ngram_size_long.empty(),
+              "no_repeat_ngram_size and no_repeat_ngram_sizes cannot be specified at the same time");
+  if (no_repeat_ngram_size_single == 0) {
+    no_repeat_ngram_sizes = std::vector<int>(no_repeat_ngram_size_long.begin(), no_repeat_ngram_size_long.end());
+  } else {
+    no_repeat_ngram_sizes = {no_repeat_ngram_size_single};
+  }
+  no_repeat_ngram_history_a = static_cast<int>(info.GetAttrOrDefault<int64_t>("no_repeat_ngram_history_a", 0));
+  no_repeat_ngram_history_b = static_cast<int>(info.GetAttrOrDefault<int64_t>("no_repeat_ngram_history_b", -1));
+  no_repeat_ngram_format_mode = static_cast<int>(info.GetAttrOrDefault<int64_t>("no_repeat_ngram_format_mode", 1));
+  ORT_ENFORCE(no_repeat_ngram_format_mode == 0 || no_repeat_ngram_format_mode == 1 || no_repeat_ngram_format_mode == 2,
+              "no_repeat_ngram_format_mode shall be 0, 1 or 2, got ", no_repeat_ngram_format_mode);
+  std::vector<int> format_tokens_shape;
+  format_tokens_shape.resize(2);
+  ORT_THROW_IF_ERROR(Get2DAttrsOrDefault(info, "no_repeat_ngram_format_tokens", format_tokens_shape, no_repeat_ngram_format_tokens));
+  no_repeat_ngram_format_tokens_num_exclusions = format_tokens_shape[0];
+  no_repeat_ngram_format_tokens_max_exclusion_length = format_tokens_shape[1];
+
   vocab_size = static_cast<int>(info.GetAttrOrDefault<int64_t>("vocab_size", -1));
   std::vector<int64_t> fsa_constraints_uncast = info.GetAttrsOrDefault<int64_t>("fsa_constraints");
   fsa_constraints = std::vector<int32_t>(fsa_constraints_uncast.begin(), fsa_constraints_uncast.end());
@@ -34,7 +52,6 @@ void BeamSearchParameters::ParseFromAttributes(const OpKernelInfo& info) {
   fsa_grammar_shape.resize(2);
   ORT_THROW_IF_ERROR(Get2DAttrsOrDefault(info, "fsa_grammar", fsa_grammar_shape, fsa_grammar));
   max_grammar_rule_length = fsa_grammar_shape[1];
-
 }
 
 void BeamSearchParameters::ParseFromInputs(OpKernelContext* context) {
