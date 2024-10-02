@@ -225,6 +225,7 @@ Status BeamSearch::Compute(OpKernelContext* ctx) const {
           init_beam_state_func_ ? init_beam_state_func_ : GenerationCpuDeviceHelper::InitBeamState<float>,
           device_copy_func_ ? device_copy_func_ : GenerationCpuDeviceHelper::DeviceCopy<float>,
           device_copy_int32_func_ ? device_copy_int32_func_ : GenerationCpuDeviceHelper::DeviceCopy<int32_t>,
+          device_copy_bool_func_ ? device_copy_bool_func_ : GenerationCpuDeviceHelper::DeviceCopy<bool>,
           update_gpt_feeds_func_ ? update_gpt_feeds_func_ : GenerationCpuDeviceHelper::UpdateGptFeeds<float>,
           create_beam_scorer_func_};
 #ifdef USE_CUDA
@@ -248,6 +249,7 @@ Status BeamSearch::Compute(OpKernelContext* ctx) const {
           init_beam_state_fp16_func_,
           device_copy_func_,
           device_copy_int32_func_,
+          device_copy_bool_func_,
           update_gpt_feeds_fp16_func_,
           create_beam_scorer_func_};
 #ifdef USE_CUDA
@@ -275,6 +277,7 @@ Status BeamSearch::Compute(OpKernelContext* ctx) const {
           init_beam_state_func_ ? init_beam_state_func_ : GenerationCpuDeviceHelper::InitBeamState<float>,
           device_copy_func_ ? device_copy_func_ : GenerationCpuDeviceHelper::DeviceCopy<float>,
           device_copy_int32_func_ ? device_copy_int32_func_ : GenerationCpuDeviceHelper::DeviceCopy<int32_t>,
+          device_copy_bool_func_ ? device_copy_bool_func_ : GenerationCpuDeviceHelper::DeviceCopy<bool>,
           create_encoder_inputs_func_ ? create_encoder_inputs_func_ : GenerationCpuDeviceHelper::CreateEncoderInputs,
           update_decoder_feeds_func_ ? update_decoder_feeds_func_ : GenerationCpuDeviceHelper::UpdateDecoderFeeds<float>,
           expand_buffer_int32_func_ ? expand_buffer_int32_func_ : GenerationCpuDeviceHelper::ExpandBuffer<int32_t>,
@@ -297,6 +300,7 @@ Status BeamSearch::Compute(OpKernelContext* ctx) const {
           init_beam_state_fp16_func_,
           device_copy_func_,
           device_copy_int32_func_,
+          device_copy_bool_func_,
           create_encoder_inputs_func_ ? create_encoder_inputs_func_ : GenerationCpuDeviceHelper::CreateEncoderInputs,
           update_decoder_feeds_fp16_func_,
           expand_buffer_int32_func_,
@@ -325,6 +329,7 @@ Status BeamSearch::Compute(OpKernelContext* ctx) const {
           init_beam_state_func_ ? init_beam_state_func_ : GenerationCpuDeviceHelper::InitBeamState<float>,
           device_copy_func_ ? device_copy_func_ : GenerationCpuDeviceHelper::DeviceCopy<float>,
           device_copy_int32_func_ ? device_copy_int32_func_ : GenerationCpuDeviceHelper::DeviceCopy<int32_t>,
+          device_copy_bool_func_ ? device_copy_bool_func_ : GenerationCpuDeviceHelper::DeviceCopy<bool>,
           create_whisper_encoder_inputs_func_ ? create_whisper_encoder_inputs_func_ : GenerationCpuDeviceHelper::CreateWhisperEncoderInputs<float>,
           update_decoder_feeds_func_ ? update_decoder_feeds_func_ : GenerationCpuDeviceHelper::UpdateDecoderFeeds<float>,
           expand_buffer_float_func_ ? expand_buffer_float_func_ : GenerationCpuDeviceHelper::ExpandBuffer<float>,
@@ -349,6 +354,7 @@ Status BeamSearch::Compute(OpKernelContext* ctx) const {
           init_beam_state_fp16_func_,
           device_copy_func_,
           device_copy_int32_func_,
+          device_copy_bool_func_,
           create_whisper_encoder_inputs_func_ ? create_whisper_encoder_inputs_func_ : GenerationCpuDeviceHelper::CreateWhisperEncoderInputs<MLFloat16>,
           update_decoder_feeds_fp16_func_ ? update_decoder_feeds_fp16_func_ : GenerationCpuDeviceHelper::UpdateDecoderFeeds<MLFloat16>,
           expand_buffer_float_func_,

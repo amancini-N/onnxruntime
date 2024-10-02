@@ -980,6 +980,12 @@ template Status DeviceCopy<int32_t>(
     Stream* stream,
     int copyDirection);
 
+template Status DeviceCopy<bool>(
+    gsl::span<bool> target,
+    gsl::span<const bool> source,
+    Stream* stream,
+    int copyDirection);
+
 template Status UpdateGptFeeds<float>(
     AllocatorPtr allocator,
     Stream* stream,

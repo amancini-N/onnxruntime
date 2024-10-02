@@ -51,6 +51,7 @@ class BeamSearch : public IControlFlowKernel {
       const GenerationDeviceHelper::TopkFunc& topk_func,
       const GenerationDeviceHelper::DeviceCopyFunc<float>& device_copy_func,
       const GenerationDeviceHelper::DeviceCopyFunc<int32_t>& device_copy_int32_func,
+      const GenerationDeviceHelper::DeviceCopyFunc<bool>& device_copy_bool_func,
       const GenerationDeviceHelper::ProcessLogitsFunc<float>& process_logits_func,
       const GenerationDeviceHelper::ProcessLogitsFunc<MLFloat16>& process_logits_fp16_func,
       const GenerationDeviceHelper::InitBeamStateFunc<float>& init_beam_state_func,
@@ -60,6 +61,7 @@ class BeamSearch : public IControlFlowKernel {
     topk_func_ = topk_func;
     device_copy_func_ = device_copy_func;
     device_copy_int32_func_ = device_copy_int32_func;
+    device_copy_bool_func_ = device_copy_bool_func;
     process_logits_func_ = process_logits_func;
     process_logits_fp16_func_ = process_logits_fp16_func;
     init_beam_state_func_ = init_beam_state_func;
@@ -112,6 +114,7 @@ class BeamSearch : public IControlFlowKernel {
   GenerationDeviceHelper::TopkFunc topk_func_;
   GenerationDeviceHelper::DeviceCopyFunc<float> device_copy_func_;
   GenerationDeviceHelper::DeviceCopyFunc<int32_t> device_copy_int32_func_;
+  GenerationDeviceHelper::DeviceCopyFunc<bool> device_copy_bool_func_;
 
   GenerationDeviceHelper::ProcessLogitsFunc<float> process_logits_func_;
   GenerationDeviceHelper::ProcessLogitsFunc<MLFloat16> process_logits_fp16_func_;

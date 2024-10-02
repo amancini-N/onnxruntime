@@ -34,8 +34,12 @@ void BeamSearchParameters::ParseFromAttributes(const OpKernelInfo& info) {
   } else {
     no_repeat_ngram_sizes = {no_repeat_ngram_size_single};
   }
-  no_repeat_ngram_history_a = static_cast<int>(info.GetAttrOrDefault<int64_t>("no_repeat_ngram_history_a", 0));
-  no_repeat_ngram_history_b = static_cast<int>(info.GetAttrOrDefault<int64_t>("no_repeat_ngram_history_b", -1));
+  int no_repeat_ngram_history_a = static_cast<int>(info.GetAttrOrDefault<int64_t>("no_repeat_ngram_history_a", 0));
+  int no_repeat_ngram_history_b = static_cast<int>(info.GetAttrOrDefault<int64_t>("no_repeat_ngram_history_b", -1));
+  no_repeat_ngram_history_lengths = std::vector<int>(no_repeat_ngram_sizes.size(), 0);
+  for (size_t i = 0; i < no_repeat_ngram_sizes.size(); i++) {
+    no_repeat_ngram_history_lengths[i] = no_repeat_ngram_history_a * no_repeat_ngram_sizes[i] + no_repeat_ngram_history_b;
+  }
   no_repeat_ngram_format_mode = static_cast<int>(info.GetAttrOrDefault<int64_t>("no_repeat_ngram_format_mode", 1));
   ORT_ENFORCE(no_repeat_ngram_format_mode == 0 || no_repeat_ngram_format_mode == 1 || no_repeat_ngram_format_mode == 2,
               "no_repeat_ngram_format_mode shall be 0, 1 or 2, got ", no_repeat_ngram_format_mode);
@@ -44,6 +48,22 @@ void BeamSearchParameters::ParseFromAttributes(const OpKernelInfo& info) {
   ORT_THROW_IF_ERROR(Get2DAttrsOrDefault(info, "no_repeat_ngram_format_tokens", format_tokens_shape, no_repeat_ngram_format_tokens));
   no_repeat_ngram_format_tokens_num_exclusions = format_tokens_shape[0];
   no_repeat_ngram_format_tokens_max_exclusion_length = format_tokens_shape[1];
+  // Compute unique tokens and sort them
+  std::set<int> unique_tokens;
+  for (int i = 0; i < no_repeat_ngram_format_tokens_num_exclusions; i++) {
+    for (int j = 0; j < no_repeat_ngram_format_tokens_max_exclusion_length; j++) {
+      unique_tokens.insert(no_repeat_ngram_format_tokens[i * no_repeat_ngram_format_tokens_max_exclusion_length + j]);
+    }
+  }
+  no_repeat_ngram_format_tokens_unique_sorted = std::vector<int>(unique_tokens.begin(), unique_tokens.end());
+  std::sort(no_repeat_ngram_format_tokens_unique_sorted.begin(), no_repeat_ngram_format_tokens_unique_sorted.end());
+
+  no_repeat_ngram_format_tokens_lengths.resize(no_repeat_ngram_format_tokens_num_exclusions);
+  // Count padding in tokens (0). Compute lengths
+  for (int i = 0; i < no_repeat_ngram_format_tokens_num_exclusions; i++) {
+    no_repeat_ngram_format_tokens_lengths[i] = no_repeat_ngram_format_tokens_max_exclusion_length - std::count(no_repeat_ngram_format_tokens.begin() + i * no_repeat_ngram_format_tokens_max_exclusion_length,
+                                                                                                no_repeat_ngram_format_tokens.begin() + (i + 1) * no_repeat_ngram_format_tokens_max_exclusion_length, 0);
+  }
 
   vocab_size = static_cast<int>(info.GetAttrOrDefault<int64_t>("vocab_size", -1));
   std::vector<int64_t> fsa_constraints_uncast = info.GetAttrsOrDefault<int64_t>("fsa_constraints");
@@ -51,7 +71,39 @@ void BeamSearchParameters::ParseFromAttributes(const OpKernelInfo& info) {
   std::vector<int32_t> fsa_grammar_shape;
   fsa_grammar_shape.resize(2);
   ORT_THROW_IF_ERROR(Get2DAttrsOrDefault(info, "fsa_grammar", fsa_grammar_shape, fsa_grammar));
+  fsa_num_rules = fsa_grammar_shape[0];
   max_grammar_rule_length = fsa_grammar_shape[1];
+
+  // following boolean span allow for slighlty faster processing (avoiding to go over grammar rule each time)
+  // now we only need to do that during Process if has_specific_allowed_token_span_[last_token] is true
+  fsa_any_allowed_span = gsl::span(new bool[vocab_size], vocab_size);
+  fsa_next_constraint_allowed_span = gsl::span(new bool[vocab_size], vocab_size);
+  fsa_has_specific_allowed_tokens_span = gsl::span(new bool[vocab_size], vocab_size);
+
+  std::fill_n(fsa_any_allowed_span.begin(), vocab_size, false);
+  std::fill_n(fsa_next_constraint_allowed_span.begin(), vocab_size, false);
+  std::fill_n(fsa_has_specific_allowed_tokens_span.begin(), vocab_size, false);
+
+  int PADDING_RULE_ = -1;
+  int ANY_RULE_ = -2;
+  int NEXT_RULE_ = -3;
+  for (int vocab_index = 0; vocab_index < vocab_size; vocab_index++) {
+    assert(vocab_index * max_grammar_rule_length + max_grammar_rule_length <= static_cast<int>(fsa_grammar.size()));
+    gsl::span<const int32_t> rule_span = AsSpan(fsa_grammar).subspan(vocab_index * max_grammar_rule_length, max_grammar_rule_length);
+    // we go over the span
+    for (int j = 0; j < max_grammar_rule_length; j++) {
+      int32_t token_id = rule_span[j];
+      if (token_id == PADDING_RULE_) {
+        break;
+      } else if (token_id == ANY_RULE_) {
+        fsa_any_allowed_span[vocab_index] = true;
+      } else if (token_id == NEXT_RULE_) {
+        fsa_next_constraint_allowed_span[vocab_index] = true;
+      } else {
+        fsa_has_specific_allowed_tokens_span[vocab_index] = true;
+      }
+    }
+  }
 }
 
 void BeamSearchParameters::ParseFromInputs(OpKernelContext* context) {

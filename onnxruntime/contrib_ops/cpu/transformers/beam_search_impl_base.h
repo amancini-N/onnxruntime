@@ -58,6 +58,45 @@ struct BeamSearchState : IBeamSearchState<T> {
 
       this->staging_for_past_state_reorder = std::move(temp);
     }
+
+    // Allocate GPU buffer for no_repeat_ngram info
+    int buffer_size = parameters.no_repeat_ngram_sizes.size() +
+                      parameters.no_repeat_ngram_history_lengths.size() +
+                      parameters.no_repeat_ngram_format_tokens.size() +
+                      parameters.no_repeat_ngram_format_tokens_lengths.size() +
+                      parameters.no_repeat_ngram_format_tokens_unique_sorted.size() +
+                      parameters.fsa_constraints.size() +
+                      parameters.fsa_grammar.size() +
+                      batch_beam_size /* fsa_next_constraint_indexes */;
+    gsl::span<int32_t> buffer_view = AllocateBuffer<int32_t>(allocator, device_logits_processor_data_, SafeInt<size_t>(buffer_size), stream);
+    int offset = 0;
+    this->no_repeat_ngram_sizes = buffer_view.subspan(offset, parameters.no_repeat_ngram_sizes.size());
+    offset += parameters.no_repeat_ngram_sizes.size();
+    this->no_repeat_ngram_history_lengths = buffer_view.subspan(offset, parameters.no_repeat_ngram_history_lengths.size());
+    offset += parameters.no_repeat_ngram_history_lengths.size();
+    this->no_repeat_ngram_format_tokens = buffer_view.subspan(offset, parameters.no_repeat_ngram_format_tokens.size());
+    offset += parameters.no_repeat_ngram_format_tokens.size();
+    this->no_repeat_ngram_format_tokens_lengths = buffer_view.subspan(offset, parameters.no_repeat_ngram_format_tokens_lengths.size());
+    offset += parameters.no_repeat_ngram_format_tokens_lengths.size();
+    this->no_repeat_ngram_format_tokens_unique_sorted = buffer_view.subspan(offset, parameters.no_repeat_ngram_format_tokens_unique_sorted.size());
+    offset += parameters.no_repeat_ngram_format_tokens_unique_sorted.size();
+    this->fsa_constraints = buffer_view.subspan(offset, parameters.fsa_constraints.size());
+    offset += parameters.fsa_constraints.size();
+    this->fsa_grammar = buffer_view.subspan(offset, parameters.fsa_grammar.size());
+    offset += parameters.fsa_grammar.size();
+    this->fsa_next_constraint_indexes = buffer_view.subspan(offset, batch_beam_size);
+
+    // Now with the bool data
+    buffer_size = parameters.fsa_any_allowed_span.size() +
+                  parameters.fsa_next_constraint_allowed_span.size() +
+                  parameters.fsa_has_specific_allowed_tokens_span.size();
+    gsl::span<bool> bool_buffer_view = AllocateBuffer<bool>(allocator, device_logits_processor_bool_data_, SafeInt<size_t>(buffer_size), stream);
+    offset = 0;
+    this->fsa_any_allowed = bool_buffer_view.subspan(offset, parameters.fsa_any_allowed_span.size());
+    offset += parameters.fsa_any_allowed_span.size();
+    this->fsa_next_constraint_allowed = bool_buffer_view.subspan(offset, parameters.fsa_next_constraint_allowed_span.size());
+    offset += parameters.fsa_next_constraint_allowed_span.size();
+    this->fsa_has_specific_allowed_tokens = bool_buffer_view.subspan(offset, parameters.fsa_has_specific_allowed_tokens_span.size());
   }
 
   void EnsurePastStateReorderStagingBuffer(AllocatorPtr allocator, int64_t sz) {
@@ -79,6 +118,8 @@ struct BeamSearchState : IBeamSearchState<T> {
   IAllocatorUniquePtr<void> scores_buffer_;
   IAllocatorUniquePtr<void> topk_temp_buffer_;
   IAllocatorUniquePtr<void> sequences_device_buffer_;
+  IAllocatorUniquePtr<void> device_logits_processor_data_;
+  IAllocatorUniquePtr<void> device_logits_processor_bool_data_;
 };
 
 struct BeamSearchCpuState : IBeamSearchCpuState {
@@ -150,7 +191,8 @@ class BeamSearchBase : public GenerateBase {
                  const GenerationDeviceHelper::TopkFunc& topk_func,
                  const GenerationDeviceHelper::ProcessLogitsFunc<T>& process_logits_func,
                  const GenerationDeviceHelper::DeviceCopyFunc<float>& device_copy_func,
-                 const GenerationDeviceHelper::DeviceCopyFunc<int32_t>& device_copy_int32_func)
+                 const GenerationDeviceHelper::DeviceCopyFunc<int32_t>& device_copy_int32_func,
+                 const GenerationDeviceHelper::DeviceCopyFunc<bool>& device_copy_bool_func)
       : GenerateBase(context,
                      decoder_session_state,
                      thread_pool,
@@ -160,7 +202,8 @@ class BeamSearchBase : public GenerateBase {
                      device_copy_func),
         parameters_(&params),
         process_logits_func_(process_logits_func),
-        device_copy_int32_func_(device_copy_int32_func) {
+        device_copy_int32_func_(device_copy_int32_func),
+        device_copy_bool_func_(device_copy_bool_func) {
     parameters_->ParseFromInputs(&context);
   }
 
@@ -194,6 +237,7 @@ class BeamSearchBase : public GenerateBase {
   // Device specific functions
   GenerationDeviceHelper::ProcessLogitsFunc<T> process_logits_func_;
   GenerationDeviceHelper::DeviceCopyFunc<int32_t> device_copy_int32_func_;
+  GenerationDeviceHelper::DeviceCopyFunc<bool> device_copy_bool_func_;
 };
 
 template <typename T>

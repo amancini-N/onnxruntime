@@ -42,6 +42,19 @@ struct IBeamSearchState {
 
   gsl::span<int32_t> sequences_device;  // shape (2 * batch_size * max_length)
 
+  // The following are used only by CUDA operator for attributes copied on device.
+  gsl::span<int32_t> no_repeat_ngram_sizes; // shape (ngram_size)
+  gsl::span<int32_t> no_repeat_ngram_history_lengths; // shape (ngram_size)
+  gsl::span<int32_t> no_repeat_ngram_format_tokens; // shape (ngram_format_tokens_num_exclusions * ngram_format_tokens_max_length)
+  gsl::span<int32_t> no_repeat_ngram_format_tokens_lengths; // shape (ngram_format_tokens_num_exclusions)
+  gsl::span<int32_t> no_repeat_ngram_format_tokens_unique_sorted; // shape (ngram_format_tokens_unique_count)
+  gsl::span<int32_t> fsa_constraints; // shape (fsa_num_constraints)
+  gsl::span<int32_t> fsa_grammar; // shape (fsa_num_rules * max_grammar_rule_length)
+  gsl::span<int32_t> fsa_next_constraint_indexes; // shape (batch_size * num_beams)
+  gsl::span<bool> fsa_any_allowed; // shape (vocab_size)
+  gsl::span<bool> fsa_next_constraint_allowed; // shape (vocab_size)
+  gsl::span<bool> fsa_has_specific_allowed_tokens; // shape (vocab_size)
+
   Tensor staging_for_past_state_reorder;  // Tensor of shape (batch_size * num_beams, num_heads, max_length, head_size)
 };
 
@@ -150,16 +163,21 @@ struct IGenerationParameters {
   int pad_token_id;
   int decoder_start_token_id;
   std::vector<int> no_repeat_ngram_sizes;
-  int no_repeat_ngram_history_a;
-  int no_repeat_ngram_history_b;
+  std::vector<int> no_repeat_ngram_history_lengths;
   std::vector<int> no_repeat_ngram_format_tokens;
+  std::vector<int> no_repeat_ngram_format_tokens_unique_sorted;
   int no_repeat_ngram_format_tokens_num_exclusions;
+  std::vector<int> no_repeat_ngram_format_tokens_lengths;
   int no_repeat_ngram_format_tokens_max_exclusion_length;
   int no_repeat_ngram_format_mode;  // 0 for ALL method, 1 for ANY method, 2 for SIMPLE method
 
   std::vector<int32_t> fsa_constraints;
   std::vector<int32_t> fsa_grammar;
+  int fsa_num_rules;
   int max_grammar_rule_length;
+  gsl::span<bool> fsa_any_allowed_span;
+  gsl::span<bool> fsa_next_constraint_allowed_span;
+  gsl::span<bool> fsa_has_specific_allowed_tokens_span;
 
   bool early_stopping;
 

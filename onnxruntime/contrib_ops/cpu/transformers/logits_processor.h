@@ -108,7 +108,7 @@ class RepetitionPenaltyLogitsProcessor : public ILogitsProcessor<T> {
 template <typename T>
 class NoRepeatNGramLogitsProcessor : public ILogitsProcessor<T> {
  public:
-  NoRepeatNGramLogitsProcessor(std::vector<int> ngram_size, int ngram_history_a, int ngram_history_b, int ngram_format_mode, std::vector<int> ngram_format_tokens, int ngram_format_tokens_n_exclusions, int ngram_format_tokens_max_length);
+  NoRepeatNGramLogitsProcessor(std::vector<int> ngram_size, std::vector<int> ngram_history_lengths, int ngram_format_mode, std::vector<int> ngram_format_tokens, std::vector<int> ngram_format_tokens_unique_sorted, int ngram_format_tokens_n_exclusions, std::vector<int> ngram_format_tokens_lengths, int ngram_format_tokens_max_length);
 
   void Process(const ISequences* sequences,
                NextTokenScores<T>& next_token_scores) override;
@@ -120,9 +120,9 @@ class NoRepeatNGramLogitsProcessor : public ILogitsProcessor<T> {
   std::vector<int> history_lengths_;
   int format_mode_;
   std::vector<int> format_tokens_;
-  std::vector<int> format_tokens_lengths_;
-  std::unordered_set<int> format_tokens_unique_;
+  std::vector<int> format_tokens_unique_sorted_;
   int format_tokens_num_exclusions_;
+  std::vector<int> format_tokens_lengths_;
   int format_tokens_max_length_;
 };
 
@@ -212,7 +212,10 @@ class SequentialConstraintsFSALogitsProcessor : public ILogitsProcessor<T> {
       const gsl::span<const int32_t>& grammar,
       int batch_beam_size,
       int vocab_size,
-      int max_grammar_rule_length);
+      int max_grammar_rule_length,
+      const gsl::span<bool>& any_allowed_span,
+      const gsl::span<bool>& next_constraint_allowed_span,
+      const gsl::span<bool>& has_specific_allowed_tokens_span);
 
   void Process(const ISequences* sequences,
                NextTokenScores<T>& next_token_scores) override;
@@ -224,9 +227,9 @@ class SequentialConstraintsFSALogitsProcessor : public ILogitsProcessor<T> {
   const int vocab_size_;
   const int max_grammar_rule_length_;
   gsl::span<int32_t> next_constraint_indexes_;
-  gsl::span<bool> any_allowed_span_;
-  gsl::span<bool> next_constraint_allowed_span_;
-  gsl::span<bool> has_specific_allowed_tokens_span_;
+  const gsl::span<bool> any_allowed_span_;
+  const gsl::span<bool> next_constraint_allowed_span_;
+  const gsl::span<bool> has_specific_allowed_tokens_span_;
 
   int NextConstraint(int beam_index, int last_token);
   void UpdateNextConstraintIndexes(const ISequences* sequences);
@@ -391,11 +394,12 @@ class LogitsProcessorList : public ILogitsProcessorList {
 
     if (parameters.no_repeat_ngram_sizes.size() > 0) {
       no_repeat_ngram_processor_ = std::make_unique<NoRepeatNGramLogitsProcessor<float>>(parameters.no_repeat_ngram_sizes,
-                                                                                         parameters.no_repeat_ngram_history_a,
-                                                                                         parameters.no_repeat_ngram_history_b,
+                                                                                         parameters.no_repeat_ngram_history_lengths,
                                                                                          parameters.no_repeat_ngram_format_mode,
                                                                                          parameters.no_repeat_ngram_format_tokens,
+                                                                                         parameters.no_repeat_ngram_format_tokens_unique_sorted,
                                                                                          parameters.no_repeat_ngram_format_tokens_num_exclusions,
+                                                                                         parameters.no_repeat_ngram_format_tokens_lengths,
                                                                                          parameters.no_repeat_ngram_format_tokens_max_exclusion_length);
       processor_list_.push_back(no_repeat_ngram_processor_.get());
     }
@@ -443,7 +447,10 @@ class LogitsProcessorList : public ILogitsProcessorList {
           parameters.fsa_grammar,
           parameters.batch_size * parameters.num_beams,
           parameters.max_grammar_rule_length,
-          parameters.vocab_size);
+          parameters.vocab_size,
+          parameters.fsa_any_allowed_span,
+          parameters.fsa_next_constraint_allowed_span,
+          parameters.fsa_has_specific_allowed_tokens_span);
       processor_list_.push_back(sequential_constraints_fsa_processor_.get());
     }
 

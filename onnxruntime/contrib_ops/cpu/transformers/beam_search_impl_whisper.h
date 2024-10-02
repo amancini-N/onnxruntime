@@ -32,6 +32,7 @@ class BeamSearchWhisper : public BeamSearchBase<T> {
                     const GenerationDeviceHelper::InitBeamStateFunc<T>& init_beam_state_func,
                     const GenerationDeviceHelper::DeviceCopyFunc<float>& device_copy_func,
                     const GenerationDeviceHelper::DeviceCopyFunc<int32_t>& device_copy_int32_func,
+                    const GenerationDeviceHelper::DeviceCopyFunc<bool>& device_copy_bool_func,
                     const GenerationDeviceHelper::CreateWhisperEncoderInputsFunc& create_encoder_inputs_func,
                     const GenerationDeviceHelper::UpdateDecoderFeedsFunc<T>& update_decoder_feeds_func,
                     const GenerationDeviceHelper::ExpandBufferFunc<float>& expand_buffer_float_func,
@@ -41,7 +42,7 @@ class BeamSearchWhisper : public BeamSearchBase<T> {
                     const GenerationDeviceHelper::FinalizeDecoderCrossQKFunc& finalize_decoder_cross_qk_func)
       : BeamSearchBase<T>(context, decoder_session_state, thread_pool,
                           ort_stream, cuda_dumper, params,
-                          topk_func, process_logits_func, device_copy_func, device_copy_int32_func),
+                          topk_func, process_logits_func, device_copy_func, device_copy_int32_func, device_copy_bool_func),
         encoder_session_state_(encoder_session_state),
         encoder_subgraph_(encoder_subgraph),
         decoder_subgraph_(decoder_subgraph),

@@ -14,11 +14,13 @@ void GreedySearchParameters::ParseFromAttributes(const OpKernelInfo& info) {
   pad_token_id = static_cast<int>(info.GetAttrOrDefault<int64_t>("pad_token_id", -1));
   decoder_start_token_id = static_cast<int>(info.GetAttrOrDefault<int64_t>("decoder_start_token_id", -1));
   auto no_repeat_ngram_size_single = static_cast<int>(info.GetAttrOrDefault<int64_t>("no_repeat_ngram_size", 0));
+  int no_repeat_ngram_history_a = static_cast<int>(info.GetAttrOrDefault<int64_t>("no_repeat_ngram_history_a", 0));
+  int no_repeat_ngram_history_b = static_cast<int>(info.GetAttrOrDefault<int64_t>("no_repeat_ngram_history_b", -1));
   if (no_repeat_ngram_size_single > 0) {
     no_repeat_ngram_sizes = {no_repeat_ngram_size_single};
+    no_repeat_ngram_history_lengths = {no_repeat_ngram_history_a * no_repeat_ngram_size_single + no_repeat_ngram_history_b};
   }
-  no_repeat_ngram_history_a = static_cast<int>(info.GetAttrOrDefault<int64_t>("no_repeat_ngram_history_a", 0));
-  no_repeat_ngram_history_b = static_cast<int>(info.GetAttrOrDefault<int64_t>("no_repeat_ngram_history_b", -1));
+
   vocab_size = static_cast<int>(info.GetAttrOrDefault<int64_t>("vocab_size", -1));
 }
 

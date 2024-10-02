@@ -32,11 +32,12 @@ class BeamSearchGpt : public BeamSearchBase<T> {
                 const GenerationDeviceHelper::InitBeamStateFunc<T>& init_beam_state_func,
                 const GenerationDeviceHelper::DeviceCopyFunc<float>& device_copy_func,
                 const GenerationDeviceHelper::DeviceCopyFunc<int32_t>& device_copy_int32_func,
+                const GenerationDeviceHelper::DeviceCopyFunc<bool>& device_copy_bool_func,
                 const GenerationDeviceHelper::UpdateGptFeedsFunc<T>& update_feeds_func,
                 const GenerationDeviceHelper::CreateBeamScorer& create_beam_scorer_func)
       : BeamSearchBase<T>(context, decoder_session_state, thread_pool,
                           ort_stream, cuda_dumper, params,
-                          topk_func, process_logits_func, device_copy_func, device_copy_int32_func),
+                          topk_func, process_logits_func, device_copy_func, device_copy_int32_func, device_copy_bool_func),
         init_run_decoder_session_state_(init_run_decoder_session_state),
         init_run_gpt_subgraph_(init_run_gpt_subgraph),
         gpt_subgraph_(gpt_subgraph),

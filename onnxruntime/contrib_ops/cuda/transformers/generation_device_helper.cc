@@ -284,6 +284,9 @@ void InitBeamState(transformers::IBeamSearchState<T>* beam_state,
   CUDA_CALL_THROW(cudaMemsetAsync(beam_state->next_indices.data(), 0, beam_state->next_indices.size_bytes(), cuda_stream));
   CUDA_CALL_THROW(cudaMemsetAsync(beam_state->next_scores.data(), 0, beam_state->next_scores.size_bytes(), cuda_stream));
   CUDA_CALL_THROW(cudaMemsetAsync(beam_state->topk_buffer.data(), 0, beam_state->topk_buffer.size_bytes(), cuda_stream));
+  if (beam_state->fsa_constraints.size() > 0) {
+    CUDA_CALL_THROW(cudaMemsetAsync(beam_state->fsa_next_constraint_indexes.data(), 0, beam_state->fsa_next_constraint_indexes.size_bytes(), cuda_stream));
+  }
 
   // Initialize score of first beam of each group with 0 and the rest with -1e9.
   cuda::LaunchInitKernel(beam_state->beam_scores.data(), batch_size, num_beams, cuda_stream);
@@ -433,6 +436,7 @@ Status ProcessLogits(const OrtValue& logits,                                 // 
 
   cuda::LaunchLogitsProcessKernel<float>(
       next_token_scores.data(),
+      beam_state->next_indices.data(),
       parameters->vocab_mask.data(),
       (step > extra_decoding_len + 1) ? nullptr : parameters->prefix_vocab_mask.data(),  // prefix vocab mask is applied to first step only.
       nullptr,                                                                           // parameters->presence_mask.data(),
@@ -443,11 +447,30 @@ Status ProcessLogits(const OrtValue& logits,                                 // 
       vocab_size,
       vocab_size,
       (parameters->min_length > 0 && sequences->GetSequenceLength() < parameters->min_length) ? parameters->eos_token_id : -1,
+      (parameters->max_length > 0 && sequences->GetSequenceLength() >= parameters->max_length - 1) ? parameters->eos_token_id : -1,
       sequences->GetCurrentDeviceSequences().data(),
       parameters->max_length,
       sequences->GetSequenceLength(),
       parameters->repetition_penalty,
-      parameters->no_repeat_ngram_size,
+      beam_state->no_repeat_ngram_sizes.data(),
+      static_cast<int>(beam_state->no_repeat_ngram_sizes.size()),
+      beam_state->no_repeat_ngram_history_lengths.data(),
+      beam_state->no_repeat_ngram_format_tokens.data(),
+      parameters->no_repeat_ngram_format_tokens_num_exclusions,
+      beam_state->no_repeat_ngram_format_tokens_lengths.data(),
+      parameters->no_repeat_ngram_format_tokens_max_exclusion_length,
+      beam_state->no_repeat_ngram_format_tokens_unique_sorted.data(),
+      static_cast<int>(beam_state->no_repeat_ngram_format_tokens_unique_sorted.size()),
+      parameters->no_repeat_ngram_format_mode,
+      beam_state->fsa_constraints.data(),
+      static_cast<int>(beam_state->fsa_constraints.size()),
+      beam_state->fsa_grammar.data(),
+      parameters->fsa_num_rules,
+      parameters->max_grammar_rule_length,
+      beam_state->fsa_next_constraint_indexes.data(),
+      beam_state->fsa_any_allowed.data(),
+      beam_state->fsa_next_constraint_allowed.data(),
+      beam_state->fsa_has_specific_allowed_tokens.data(),
       cuda_stream);
 
   // Whisper time stamp generation.
@@ -924,6 +947,7 @@ Status GreedySearchProcessLogits(
   cuda::LaunchLogitsProcessKernel<CudaT>(
       is_reuse_logits_buffer ? const_cast<CudaT*>(logits_data)
                              : reinterpret_cast<CudaT*>(next_token_scores.data()),
+      nullptr,
       parameters->vocab_mask.data(),
       step > 1 ? nullptr : parameters->prefix_vocab_mask.data(),  // prefix vocab mask is applied to first step only.
       parameters->presence_mask.data() ? presence_mask.data() : nullptr,
@@ -936,11 +960,32 @@ Status GreedySearchProcessLogits(
       (parameters->min_length > 0 && current_sequence_length < parameters->sequence_length + parameters->min_length)
           ? parameters->eos_token_id
           : -1,
+      (parameters->max_length > 0 && current_sequence_length >= parameters->sequence_length + parameters->max_length - 1)
+          ? parameters->eos_token_id
+          : -1,
       reinterpret_cast<int32_t*>(sequences_buffer.get()),
       parameters->max_length,
       current_sequence_length,
       parameters->repetition_penalty,
-      parameters->no_repeat_ngram_size,
+      parameters->no_repeat_ngram_sizes.data(),
+      parameters->no_repeat_ngram_sizes.size(),
+      parameters->no_repeat_ngram_history_lengths.data(),
+      nullptr,
+      0,
+      nullptr,
+      0,
+      nullptr,
+      0,
+      0,
+      nullptr,
+      0,
+      nullptr,
+      0,
+      0,
+      nullptr,
+      nullptr,
+      nullptr,
+      nullptr,
       cuda_stream);
 
 #ifdef DEBUG_GENERATION
@@ -1475,6 +1520,12 @@ template Status DeviceCopy<float>(
 template Status DeviceCopy<int32_t>(
     gsl::span<int32_t> target,
     gsl::span<const int32_t> source,
+    Stream* ort_stream,
+    int copyDirection);
+
+template Status DeviceCopy<bool>(
+    gsl::span<bool> target,
+    gsl::span<const bool> source,
     Stream* ort_stream,
     int copyDirection);
 

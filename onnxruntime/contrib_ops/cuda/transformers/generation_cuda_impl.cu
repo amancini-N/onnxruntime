@@ -5,7 +5,7 @@
 // cub.cuh includes device/dispatch_radix_sort.cuh which has assignment in conditional expressions
 #if defined(_MSC_VER)
 #pragma warning(push)
-#pragma warning(disable : 4706)  
+#pragma warning(disable : 4706)
 #endif
 #include <cub/cub.cuh>
 #if defined(_MSC_VER)
@@ -73,9 +73,123 @@ void LaunchNextTokenKernel(const int64_t* next_token_indices,
                                                       total_elements);
 }
 
+// Hopefully a good upper bound for ngrams
+#define NGRAM_SIZE 512
+
+__device__ bool CheckFormatNGram(
+    const int* ngram,
+    const int ngram_size,
+    const int* format_tokens,
+    const int* format_tokens_lenghts,
+    const int format_tokens_num_ngrams,
+    const int format_tokens_max_length,
+    const int* format_tokens_unique_sorted,
+    const int format_tokens_unique_sorted_length,
+    const int format_mode) {
+  if (format_tokens_num_ngrams == 0) {
+    return false;
+  }
+
+  if (format_mode == 0) {
+    // ALL method, ngram should contain all format tokens
+    // TODO: First method checking over all 2 dimensions of format tokens,
+    // should change with pre-computed unique set
+    for (int i = 0; i < ngram_size; i++) {
+      bool is_format_token = false;
+      for (int j = 0; j < format_tokens_unique_sorted_length; j++) {
+        if (ngram[i] == format_tokens_unique_sorted[j]) {
+          is_format_token = true;
+          break;
+        }
+      }
+      if (!is_format_token) {
+        return false;
+      }
+    }
+    return true;
+  }
+  if (format_mode == 1 && format_tokens_max_length == 1) {
+    // ANY method, simplified version for unigrams
+    for (int i = 0; i < ngram_size; i++) {
+      bool is_format_token = false;
+      for (int j = 0; j < format_tokens_unique_sorted_length; j++) {
+        if (ngram[i] == format_tokens_unique_sorted[j]) {
+          is_format_token = true;
+          break;
+        }
+      }
+      if (is_format_token) {
+        return true;
+      }
+    }
+    return false;
+  }
+  if (format_mode == 1) {
+    // ANY method, ngram should contain at least one format token
+    for (int i = 0; i < format_tokens_num_ngrams; i++) {
+      const int format_ngram_size = format_tokens_lenghts[i];
+      const int32_t* format_ngram = format_tokens + i * format_tokens_max_length;
+      // Check presence of format tokens in ngram and save it
+      int ngram_isin[NGRAM_SIZE];
+      for (int j = 0; j < ngram_size; j++) {
+        ngram_isin[j] = 0;
+        for (int k = 0; k < format_ngram_size; k++) {
+          if (ngram[j] == format_ngram[k]) {
+            ngram_isin[j] = 1;
+            break;
+          }
+        }
+      }
+
+      // Convolute ngram_isin with ones of size format_ngram_size
+      const int conv_out_size = ngram_size - format_ngram_size + 1;
+      int convoluted[NGRAM_SIZE];
+      const int m = format_ngram_size / 2;
+      for (int j = 0; j < conv_out_size; j++) {
+        convoluted[j] = 0;
+        for (int k = 0; k < format_ngram_size; k++) {
+          if (j - k + m >= 0) {
+            convoluted[j] += ngram_isin[j - k + m];
+          }
+        }
+      }
+
+      // neglect elements in convoluted that are less than format_ngram_size
+      for (int j = 0; j < conv_out_size; j++) {
+        if (convoluted[j] == format_ngram_size) {
+          convoluted[j] = 0;
+        }
+      }
+
+      // true if sum of convoluted is equal to format_ngram_size
+      int sum = 0;
+      for (int j = 0; j < conv_out_size; j++) {
+        sum += convoluted[j];
+      }
+      if (sum == format_ngram_size) {
+        return true;
+      }
+
+    }
+    return false;
+  }
+  if (format_mode == 2) {
+    // SIMPLE method
+    for (int i = 0; i < format_tokens_num_ngrams; i++) {
+      for (int j = 0; j < format_tokens_max_length; j++) {
+        if (ngram[ngram_size - 1] == format_tokens[i * format_tokens_max_length + j]) {
+          return true;
+        }
+      }
+    }
+  }
+  return false;
+}
+
 template <typename T>
 __global__ void LogitsProcessKernel(
     T* next_token_scores,
+    const int* next_indices,
     const int* vocab_mask,
     const int* prefix_vocab_mask,
     const int* presence_mask,
@@ -86,11 +200,30 @@ __global__ void LogitsProcessKernel(
     int padded_vocab_size,
     int total_elements,
     int demote_token_id,
+    int only_promote_token_id,
     const int32_t* sequences,
     int max_sequence_length,
     int current_sequence_length,
     float repetition_penalty,
-    int no_repeat_ngram_size) {
+    const int* no_repeat_ngram_sizes,
+    int no_repeat_ngram_sizes_length,
+    const int* no_repeat_ngram_history_lengths,
+    const int* no_repeat_ngram_format_tokens,
+    int no_repeat_ngram_format_tokens_num_ngrams,
+    const int* no_repeat_ngram_format_tokens_lengths,
+    int no_repeat_ngram_format_tokens_max_length,
+    const int* no_repeat_ngram_format_tokens_unique_sorted,
+    int no_repeat_ngram_format_tokens_unique_sorted_length,
+    int no_repeat_ngram_format_mode,
+    const int* fsa_constraints,
+    int fsa_constraints_length,
+    const int* fsa_grammar,
+    int fsa_grammar_num_rules,
+    int fsa_grammar_max_num_targets,
+    int* fsa_next_constraint_indexes,
+    const bool* fsa_any_allowed_mask,
+    const bool* fsa_next_constraint_allowed_mask,
+    const bool* fsa_has_specific_allowed_tokens_mask) {
   int index = blockIdx.x * blockDim.x + threadIdx.x;
   if (index < total_elements) {
     int batch_beam_index = index / padded_vocab_size;
@@ -117,28 +250,138 @@ __global__ void LogitsProcessKernel(
       }
 
       // NoRepeatNGramLogitsProcessor
-      if (no_repeat_ngram_size > 0 && current_sequence_length >= no_repeat_ngram_size) {
-        const int32_t* current_sequence = sequences + batch_beam_index * max_sequence_length;
-        bool found = false;
-        for (int i = no_repeat_ngram_size - 1; i < current_sequence_length; i++) {
-          if (current_sequence[i] == word_id) {  // last token of n-gram matched
-            found = true;
-            for (int j = 0; j < no_repeat_ngram_size - 1; j++) {  // match the remaining N-1 tokens
-              if (current_sequence[i - j - 1] != current_sequence[current_sequence_length - 1 - j]) {
-                found = false;
-                break;
+      if (no_repeat_ngram_sizes_length > 0) {
+        for (int i = 0; i < no_repeat_ngram_sizes_length; i++) {
+          int no_repeat_ngram_size = no_repeat_ngram_sizes[i];
+          if (current_sequence_length >= no_repeat_ngram_size) {
+            int history_length = no_repeat_ngram_history_lengths[i];
+            int prefix_length = no_repeat_ngram_size - 1;
+            if (i > 0) {
+              prefix_length += no_repeat_ngram_history_lengths[i - 1] - no_repeat_ngram_size + 1;
+            }
+
+            const int32_t* current_sequence = sequences + batch_beam_index * max_sequence_length;
+
+            if (current_sequence_length > history_length && history_length > 0) {
+              prefix_length += history_length - current_sequence_length;
+              current_sequence += current_sequence_length - history_length;
+            }
+            if (current_sequence_length <= prefix_length) {
+              continue;
+            }
+
+            // TODO: arrived here, need to apply history logic and format tokens exclusion in this
+            bool found = false;
+            for (int i = no_repeat_ngram_size - 1; i < current_sequence_length; i++) {
+              if (current_sequence[i] == word_id) {  // last token of n-gram matched
+                found = true;
+                for (int j = 0; j < prefix_length; j++) {  // match the remaining N-1 tokens
+                  if (current_sequence[i - j - 1] != current_sequence[current_sequence_length - 1 - j]) {
+                    found = false;
+                    break;
+                  }
+                }
+                // Check if the n-gram is in the format tokens (depends on the mode)
+                if (found) {
+                  found = !CheckFormatNGram(current_sequence + i - no_repeat_ngram_size + 1,
+                                            no_repeat_ngram_size,
+                                            no_repeat_ngram_format_tokens,
+                                            no_repeat_ngram_format_tokens_lengths,
+                                            no_repeat_ngram_format_tokens_num_ngrams,
+                                            no_repeat_ngram_format_tokens_max_length,
+                                            no_repeat_ngram_format_tokens_unique_sorted,
+                                            no_repeat_ngram_format_tokens_unique_sorted_length,
+                                            no_repeat_ngram_format_mode);
+                }
+                if (found) {
+                  break;
+                }
               }
             }
+
             if (found) {
+              next_token_scores[index] = cub::FpLimits<T>::Lowest();
+              return;
+            }
+          }
+        }
+      }
+
+      // SequentialConstraintsFSALogitsProcessor
+      if (fsa_grammar_num_rules > 0) {
+        // First step: re-sort fsa_next_constraint_indexes according to next_indices
+        // Doing it only for the first word_id, as it is the same for all words
+        int next_constraint_index = fsa_next_constraint_indexes[next_indices[batch_beam_index]];
+        // Synchronize to make sure next_constraint_indexes is updated only after reading it
+        __syncthreads();
+        if (word_id == 0) {
+          fsa_next_constraint_indexes[batch_beam_index] = next_constraint_index;
+        }
+        // Synchronize to make sure fsa_next_constraint_indexes is updated before reading it
+        __syncthreads();
+
+        // Second step: advance next constraint index
+        const int32_t* current_sequence = sequences + batch_beam_index * max_sequence_length;
+        const int32_t last_token = current_sequence[current_sequence_length - 1];
+
+        int next_constraint = -1;
+        next_constraint_index = fsa_next_constraint_indexes[batch_beam_index];
+        if (next_constraint_index != -1) {
+          next_constraint = fsa_constraints[next_constraint_index];
+        }
+
+        if (next_constraint == last_token) {
+          next_constraint_index++;
+          if (next_constraint_index < fsa_constraints_length) {
+            next_constraint = fsa_constraints[next_constraint_index];
+          } else {
+            next_constraint = -1;
+          }
+        }
+
+        // Update next_constraint_index in buffer for next iteration
+        // Synchronize to make sure next_constraint_indexes is updated only after reading it
+        __syncthreads();
+        if (word_id == 0) {
+          fsa_next_constraint_indexes[batch_beam_index] = next_constraint_index;
+        }
+        // Synchronize to make sure fsa_next_constraint_indexes is updated before reading it
+        __syncthreads();
+
+        // Third step: check if next token is allowed
+        bool allowed = true;
+        if (fsa_any_allowed_mask[last_token]) {
+          for (int i = 0; i < fsa_constraints_length; i++) {
+            if (word_id == fsa_constraints[i]) {
+              allowed = false;
+              break;
+            }
+          }
+        } else {
+          allowed = false;
+        }
+
+        allowed |= fsa_next_constraint_allowed_mask[last_token] && next_constraint == word_id;
+
+        if (fsa_has_specific_allowed_tokens_mask[last_token]) {
+          const int* current_rule_targets = fsa_grammar + last_token * fsa_grammar_max_num_targets;
+          for (int i = 0; i < fsa_grammar_max_num_targets; i++) {
+            if (current_rule_targets[i] == -1) {
+              break;
+            }
+            if (current_rule_targets[i] == word_id) {
+              allowed = true;
               break;
             }
           }
         }
 
-        if (found) {
+        // If token is not allowed, set score to lowest
+        if (!allowed) {
           next_token_scores[index] = cub::FpLimits<T>::Lowest();
           return;
         }
+
       }
 
       // VocabMaskLogitsProcessor
@@ -157,6 +400,13 @@ __global__ void LogitsProcessKernel(
       // MinLengthLogitsProcessor
       if (word_id == demote_token_id) {
         next_token_scores[index] = cub::FpLimits<T>::Lowest();
+        return;
+      }
+
+      // MaxLengthLogitsProcessor
+      if (only_promote_token_id > 0 && word_id != only_promote_token_id) {
+        next_token_scores[index] = cub::FpLimits<T>::Lowest();
+        return;
       }
 
       // PresencePenaltyLogitsProcessor
@@ -177,6 +427,7 @@ __global__ void LogitsProcessKernel(
 template <typename T>
 void LaunchLogitsProcessKernel(
     T* next_token_scores,
+    const int* next_indices,
     const int* vocab_mask,
     const int* prefix_vocab_mask,
     int* presence_mask,
@@ -187,17 +438,37 @@ void LaunchLogitsProcessKernel(
     int vocab_size,
     int padded_vocab_size,
     int demote_token_id,
+    int only_promote_token_id,
     const int32_t* sequences,
     int max_sequence_length,
     int current_sequence_length,
     float repetition_penalty,
-    int no_repeat_ngram_size,
+    const int* no_repeat_ngram_sizes,
+    int no_repeat_ngram_sizes_length,
+    const int* no_repeat_ngram_history_lengths,
+    const int* no_repeat_ngram_format_tokens,
+    int no_repeat_ngram_format_tokens_num_ngrams,
+    const int* no_repeat_ngram_format_tokens_lengths,
+    int no_repeat_ngram_format_tokens_max_length,
+    const int* no_repeat_ngram_format_tokens_unique_sorted,
+    int no_repeat_ngram_format_tokens_unique_sorted_length,
+    int no_repeat_ngram_format_mode,
+    const int* fsa_constraints,
+    int fsa_constraints_length,
+    const int* fsa_grammar,
+    int fsa_grammar_num_rules,
+    int fsa_grammar_max_num_targets,
+    int* fsa_next_constraint_indexes,
+    const bool* fsa_any_allowed_mask,
+    const bool* fsa_next_constraint_allowed_mask,
+    const bool* fsa_has_specific_allowed_tokens_mask,
     cudaStream_t stream) {
   int total_elements = batch_size * num_beams * padded_vocab_size;
   constexpr int blockSize = 256;
   const int gridSize = (total_elements + blockSize - 1) / blockSize;
   LogitsProcessKernel<T><<<gridSize, blockSize, 0, stream>>>(
       next_token_scores,
+      next_indices,
       vocab_mask,
       prefix_vocab_mask,
       presence_mask,
@@ -208,16 +479,36 @@ void LaunchLogitsProcessKernel(
       padded_vocab_size,
       total_elements,
       demote_token_id,
+      only_promote_token_id,
       sequences,
       max_sequence_length,
       current_sequence_length,
       repetition_penalty,
-      no_repeat_ngram_size);
+      no_repeat_ngram_sizes,
+      no_repeat_ngram_sizes_length,
+      no_repeat_ngram_history_lengths,
+      no_repeat_ngram_format_tokens,
+      no_repeat_ngram_format_tokens_num_ngrams,
+      no_repeat_ngram_format_tokens_lengths,
+      no_repeat_ngram_format_tokens_max_length,
+      no_repeat_ngram_format_tokens_unique_sorted,
+      no_repeat_ngram_format_tokens_unique_sorted_length,
+      no_repeat_ngram_format_mode,
+      fsa_constraints,
+      fsa_constraints_length,
+      fsa_grammar,
+      fsa_grammar_num_rules,
+      fsa_grammar_max_num_targets,
+      fsa_next_constraint_indexes,
+      fsa_any_allowed_mask,
+      fsa_next_constraint_allowed_mask,
+      fsa_has_specific_allowed_tokens_mask);
 }
 
 // Instantiation
 template void LaunchLogitsProcessKernel(
     float* next_token_scores,
+    const int* next_indices,
     const int* vocab_mask,
     const int* prefix_vocab_mask,
     int* presence_mask,
@@ -228,15 +519,35 @@ template void LaunchLogitsProcessKernel(
     int vocab_size,
     int padded_vocab_size,
     int demote_token_id,
+    int only_promote_token_id,
     const int32_t* sequences,
     int max_sequence_length,
     int current_sequence_length,
     float repetition_penalty,
-    int no_repeat_ngram_size,
+    const int* no_repeat_ngram_sizes,
+    int no_repeat_ngram_sizes_length,
+    const int* no_repeat_ngram_history_lengths,
+    const int* no_repeat_ngram_format_tokens,
+    int no_repeat_ngram_format_tokens_num_ngrams,
+    const int* no_repeat_ngram_format_tokens_lengths,
+    int no_repeat_ngram_format_tokens_max_length,
+    const int* no_repeat_ngram_format_tokens_unique_sorted,
+    int no_repeat_ngram_format_tokens_unique_sorted_length,
+    int no_repeat_ngram_format_mode,
+    const int* fsa_constraints,
+    int fsa_constraints_length,
+    const int* fsa_grammar,
+    int fsa_grammar_num_rules,
+    int fsa_grammar_max_num_targets,
+    int* fsa_next_constraint_indexes,
+    const bool* fsa_any_allowed_mask,
+    const bool* fsa_next_constraint_allowed_mask,
+    const bool* fsa_has_specific_allowed_tokens_mask,
     cudaStream_t stream);
 
 template void LaunchLogitsProcessKernel(
     half* next_token_scores,
+    const int* next_indices,
     const int* vocab_mask,
     const int* prefix_vocab_mask,
     int* presence_mask,
@@ -247,11 +558,30 @@ template void LaunchLogitsProcessKernel(
     int vocab_size,
     int padded_vocab_size,
     int demote_token_id,
+    int only_promote_token_id,
     const int32_t* sequences,
     int max_sequence_length,
     int current_sequence_length,
     float repetition_penalty,
-    int no_repeat_ngram_size,
+    const int* no_repeat_ngram_sizes,
+    int no_repeat_ngram_sizes_length,
+    const int* no_repeat_ngram_history_lengths,
+    const int* no_repeat_ngram_format_tokens,
+    int no_repeat_ngram_format_tokens_num_ngrams,
+    const int* no_repeat_ngram_format_tokens_lengths,
+    int no_repeat_ngram_format_tokens_max_length,
+    const int* no_repeat_ngram_format_tokens_unique_sorted,
+    int no_repeat_ngram_format_tokens_unique_sorted_length,
+    int no_repeat_ngram_format_mode,
+    const int* fsa_constraints,
+    int fsa_constraints_length,
+    const int* fsa_grammar,
+    int fsa_grammar_num_rules,
+    int fsa_grammar_max_num_targets,
+    int* fsa_next_constraint_indexes,
+    const bool* fsa_any_allowed_mask,
+    const bool* fsa_next_constraint_allowed_mask,
+    const bool* fsa_has_specific_allowed_tokens_mask,
     cudaStream_t stream);
 
 __global__ void InitializeBeamHypotheses(BeamHypotheses* beam_hyps, int beam_hyps_count, float length_penalty, HypothesisScore* beams, int num_beams) {

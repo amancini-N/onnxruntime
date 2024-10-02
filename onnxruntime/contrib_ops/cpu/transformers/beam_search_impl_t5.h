@@ -32,6 +32,7 @@ class BeamSearchT5 : public BeamSearchBase<T> {
                const GenerationDeviceHelper::InitBeamStateFunc<T>& init_beam_state_func,
                const GenerationDeviceHelper::DeviceCopyFunc<float>& device_copy_func,
                const GenerationDeviceHelper::DeviceCopyFunc<int32_t>& device_copy_int32_func,
+               const GenerationDeviceHelper::DeviceCopyFunc<bool>& device_copy_bool_func,
                const GenerationDeviceHelper::CreateEncoderInputsFunc& create_encoder_inputs_func,
                const GenerationDeviceHelper::UpdateDecoderFeedsFunc<T>& update_decoder_feeds_func,
                const GenerationDeviceHelper::ExpandBufferFunc<int32_t>& expand_buffer_int32_func,
@@ -40,7 +41,7 @@ class BeamSearchT5 : public BeamSearchBase<T> {
                const GenerationDeviceHelper::CreateBeamScorer& create_beam_scorer_func)
       : BeamSearchBase<T>(context, decoder_session_state, thread_pool,
                           ort_stream, cuda_dumper, params,
-                          topk_func, process_logits_func, device_copy_func, device_copy_int32_func),
+                          topk_func, process_logits_func, device_copy_func, device_copy_int32_func, device_copy_bool_func),
         encoder_session_state_(encoder_session_state),
         encoder_subgraph_(encoder_subgraph),
         decoder_subgraph_(decoder_subgraph),
@@ -216,6 +217,19 @@ Status BeamSearchT5<T>::Execute(const FeedsFetchesManager& encoder_feeds_fetches
                                                       cpu_state.sequences_space.subspan(0, cpu_state.sequences_space.size() / 2),
                                                       this->ort_stream_,
                                                       DeviceCopyDirection::hostToDevice));
+
+    // Copy data from parameters to device
+    ORT_RETURN_IF_ERROR(this->device_copy_int32_func_(beam_state.no_repeat_ngram_sizes, AsSpan(parameters->no_repeat_ngram_sizes), this->ort_stream_, DeviceCopyDirection::hostToDevice));
+    ORT_RETURN_IF_ERROR(this->device_copy_int32_func_(beam_state.no_repeat_ngram_history_lengths, AsSpan(parameters->no_repeat_ngram_history_lengths), this->ort_stream_, DeviceCopyDirection::hostToDevice));
+    ORT_RETURN_IF_ERROR(this->device_copy_int32_func_(beam_state.no_repeat_ngram_format_tokens, AsSpan(parameters->no_repeat_ngram_format_tokens), this->ort_stream_, DeviceCopyDirection::hostToDevice));
+    ORT_RETURN_IF_ERROR(this->device_copy_int32_func_(beam_state.no_repeat_ngram_format_tokens_lengths, AsSpan(parameters->no_repeat_ngram_format_tokens_lengths), this->ort_stream_, DeviceCopyDirection::hostToDevice));
+    ORT_RETURN_IF_ERROR(this->device_copy_int32_func_(beam_state.no_repeat_ngram_format_tokens_unique_sorted, AsSpan(parameters->no_repeat_ngram_format_tokens_unique_sorted), this->ort_stream_, DeviceCopyDirection::hostToDevice));
+    ORT_RETURN_IF_ERROR(this->device_copy_int32_func_(beam_state.fsa_constraints, AsSpan(parameters->fsa_constraints), this->ort_stream_, DeviceCopyDirection::hostToDevice));
+    ORT_RETURN_IF_ERROR(this->device_copy_int32_func_(beam_state.fsa_grammar, AsSpan(parameters->fsa_grammar), this->ort_stream_, DeviceCopyDirection::hostToDevice));
+    ORT_RETURN_IF_ERROR(this->device_copy_bool_func_(beam_state.fsa_any_allowed, parameters->fsa_any_allowed_span, this->ort_stream_, DeviceCopyDirection::hostToDevice));
+    ORT_RETURN_IF_ERROR(this->device_copy_bool_func_(beam_state.fsa_next_constraint_allowed, parameters->fsa_next_constraint_allowed_span, this->ort_stream_, DeviceCopyDirection::hostToDevice));
+    ORT_RETURN_IF_ERROR(this->device_copy_bool_func_(beam_state.fsa_has_specific_allowed_tokens, parameters->fsa_has_specific_allowed_tokens_span, this->ort_stream_, DeviceCopyDirection::hostToDevice));
+
   }
 
   this->beam_scorer_ = create_beam_scorer_func_

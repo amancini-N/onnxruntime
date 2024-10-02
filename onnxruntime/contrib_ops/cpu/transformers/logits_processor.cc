@@ -79,19 +79,30 @@ void RepetitionPenaltyLogitsProcessor<T>::Process(const ISequences* sequences,
 
 template <typename T>
 NoRepeatNGramLogitsProcessor<T>::NoRepeatNGramLogitsProcessor(
-    std::vector<int> ngram_size, int ngram_history_a, int ngram_history_b, int ngram_format_mode,
-    std::vector<int> ngram_format_tokens, int ngram_format_tokens_n_exclusions, int ngram_format_tokens_max_length) : ngram_size_(ngram_size), format_mode_(ngram_format_mode), format_tokens_(ngram_format_tokens), format_tokens_num_exclusions_(ngram_format_tokens_n_exclusions), format_tokens_max_length_(ngram_format_tokens_max_length) {
-  history_lengths_.resize(ngram_size.size());
-  for (unsigned int i = 0; i < ngram_size.size(); i++) {
-    history_lengths_[i] = ngram_history_a * ngram_size[i] + ngram_history_b;
+    std::vector<int> ngram_size, std::vector<int> ngram_history_lengths, int ngram_format_mode,
+    std::vector<int> ngram_format_tokens, std::vector<int> ngram_format_tokens_unique_sorted,
+    int ngram_format_tokens_n_exclusions, std::vector<int> ngram_format_tokens_lengths,
+    int ngram_format_tokens_max_length) :
+      ngram_size_(ngram_size), history_lengths_(ngram_history_lengths), format_mode_(ngram_format_mode),
+      format_tokens_(ngram_format_tokens), format_tokens_unique_sorted_(ngram_format_tokens_unique_sorted),
+      format_tokens_num_exclusions_(ngram_format_tokens_n_exclusions),
+      format_tokens_lengths_(ngram_format_tokens_lengths), format_tokens_max_length_(ngram_format_tokens_max_length) {
+}
+
+inline bool BinarySearch(const std::vector<int>& sorted_vector, int target) {
+  int left = 0;
+  int right = static_cast<int>(sorted_vector.size()) - 1;
+  while (left <= right) {
+    int mid = left + (right - left) / 2;
+    if (sorted_vector[mid] == target) {
+      return true;
+    } else if (sorted_vector[mid] < target) {
+      left = mid + 1;
+    } else {
+      right = mid - 1;
+    }
   }
-  format_tokens_unique_ = std::unordered_set<int>(format_tokens_.begin(), format_tokens_.end());
-  format_tokens_lengths_.resize(format_tokens_num_exclusions_);
-  // Count padding in tokens (0). Compute lengths
-  for (int i = 0; i < format_tokens_num_exclusions_; i++) {
-    format_tokens_lengths_[i] = format_tokens_max_length_ - std::count(format_tokens_.begin() + i * format_tokens_max_length_,
-                                                                       format_tokens_.begin() + (i + 1) * format_tokens_max_length_, 0);
-  }
+  return false;
 }
 
 // Check if ngram is a format sequence, if so, ignore it.
@@ -109,7 +120,7 @@ bool NoRepeatNGramLogitsProcessor<T>::CheckFormatNGram(int ngram_size, gsl::span
   if (format_mode_ == 0) {
     for (int i = 0; i < static_cast<int>(ngram.size()); i++) {
       if (format_mode_ == 0) {
-        if (format_tokens_unique_.find(ngram[i]) == format_tokens_unique_.end()) {
+        if (!BinarySearch(format_tokens_unique_sorted_, ngram[i])) {
           return false;
         }
       }
@@ -117,7 +128,7 @@ bool NoRepeatNGramLogitsProcessor<T>::CheckFormatNGram(int ngram_size, gsl::span
     return true;
   } else if (format_mode_ == 1 && format_tokens_max_length_ == 1) {
     for (int i = 0; i < static_cast<int>(ngram.size()); i++) {
-      if (format_tokens_unique_.find(ngram[i]) != format_tokens_unique_.end()) {
+      if (BinarySearch(format_tokens_unique_sorted_, ngram[i])) {
         return true;
       }
     }
@@ -325,45 +336,20 @@ SequentialConstraintsFSALogitsProcessor<T>::SequentialConstraintsFSALogitsProces
     const gsl::span<const int32_t>& grammar,
     int batch_beam_size,
     int max_grammar_rule_length,
-    int vocab_size) : constraints_(constraints),
+    int vocab_size,
+    const gsl::span<bool>& any_allowed_span,
+    const gsl::span<bool>& next_constraint_allowed_span,
+    const gsl::span<bool>& has_specific_allowed_tokens_span) : constraints_(constraints),
                       grammar_(grammar),
                       batch_beam_size_(batch_beam_size),
                       vocab_size_(vocab_size),
-                      max_grammar_rule_length_(max_grammar_rule_length) {
+                      max_grammar_rule_length_(max_grammar_rule_length),
+                      any_allowed_span_(any_allowed_span),
+                      next_constraint_allowed_span_(next_constraint_allowed_span),
+                      has_specific_allowed_tokens_span_(has_specific_allowed_tokens_span) {
   assert(static_cast<int>(grammar_.size()) == vocab_size_ * max_grammar_rule_length_);
   next_constraint_indexes_ = gsl::span<int32_t>(new int32_t[batch_beam_size_], batch_beam_size_);
   std::fill_n(next_constraint_indexes_.begin(), batch_beam_size_, 0);  // we point indexes to start constraint
-
-  // following boolean span allow for slighlty faster processing (avoiding to go over grammar rule each time)
-  // now we only need to do that during Process if has_specific_allowed_token_span_[last_token] is true
-  any_allowed_span_ = gsl::span<bool>(new bool[vocab_size_], vocab_size_);
-  next_constraint_allowed_span_ = gsl::span<bool>(new bool[vocab_size_], vocab_size_);
-  has_specific_allowed_tokens_span_ = gsl::span<bool>(new bool[vocab_size_], vocab_size_);
-
-  std::fill_n(any_allowed_span_.begin(), vocab_size_, false);
-  std::fill_n(next_constraint_allowed_span_.begin(), vocab_size_, false);
-  std::fill_n(has_specific_allowed_tokens_span_.begin(), vocab_size_, false);
-
-  int PADDING_RULE_ = -1;
-  int ANY_RULE_ = -2;
-  int NEXT_RULE_ = -3;
-  for (int vocab_index = 0; vocab_index < vocab_size_; vocab_index++) {
-    assert(vocab_index * max_grammar_rule_length_ + max_grammar_rule_length_ <= static_cast<int>(grammar_.size()));
-    gsl::span<const int32_t> rule_span = grammar_.subspan(vocab_index * max_grammar_rule_length_, max_grammar_rule_length_);
-    // we go over the span
-    for (int j = 0; j < max_grammar_rule_length_; j++) {
-      int32_t token_id = rule_span[j];
-      if (token_id == PADDING_RULE_) {
-        break;
-      } else if (token_id == ANY_RULE_) {
-        any_allowed_span_[vocab_index] = true;
-      } else if (token_id == NEXT_RULE_) {
-        next_constraint_allowed_span_[vocab_index] = true;
-      } else {
-        has_specific_allowed_tokens_span_[vocab_index] = true;
-      }
-    }
-  }
 }
 
 template <typename T>

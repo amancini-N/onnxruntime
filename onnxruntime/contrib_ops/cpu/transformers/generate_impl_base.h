@@ -275,6 +275,10 @@ class GenerateBase {
   // Device specific functions
   GenerationDeviceHelper::TopkFunc topk_func_;
   GenerationDeviceHelper::DeviceCopyFunc<float> device_copy_func_;
+  // GenerationDeviceHelper::DeviceCopyFunc<int32_t> device_copy_int32_func_;
+
+  // Device specific buffer for logits processors data
+  // IAllocatorUniquePtr<void> device_logits_processor_data_;
 };
 
 }  // namespace transformers

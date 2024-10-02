@@ -75,11 +75,12 @@ TEST(NoRepeatNGramLogitsProcessor, FormatUnigramAny) {
 
   auto logit_processor = onnxruntime::contrib::transformers::NoRepeatNGramLogitsProcessor<float>(
       /*ngram_size=*/{2},
-      /*ngram_history_a=*/0,
-      /*ngram_history_b=*/-1,
+      /*ngram_history_lengths=*/{-1},
       /*ngram_format_mode=*/1,
       /*ngram_format_tokens=*/{1, 5},
+      /*ngram_format_tokens_unique_sorted=*/{1, 5},
       /*ngram_format_tokens_num_exclusions=*/2,
+      /*ngram_format_tokens_lengths=*/{1, 1},
       /*ngram_format_tokens_max_exclusion_length=*/1);
 
   callLogitProcessor(batch_beam_size, scores, tokens, &logit_processor);
@@ -106,11 +107,12 @@ TEST(NoRepeatNGramLogitsProcessor, FormatMultigramAny) {
 
   auto logit_processor = onnxruntime::contrib::transformers::NoRepeatNGramLogitsProcessor<float>(
       /*ngram_size=*/{2},
-      /*ngram_history_a=*/0,
-      /*ngram_history_b=*/-1,
+      /*ngram_history_lengths=*/{-1},
       /*ngram_format_mode=*/1,
       /*ngram_format_tokens=*/{1, 2, 5, 0, 3, 0},
+      /*ngram_format_tokens_unique_sorted=*/{0, 1, 2, 3, 5},
       /*ngram_format_tokens_num_exclusions=*/3,
+      /*ngram_format_tokens_lengths=*/{2, 1, 1},
       /*ngram_format_tokens_max_exclusion_length=*/2);
 
   callLogitProcessor(batch_beam_size, scores, tokens, &logit_processor);
@@ -138,11 +140,12 @@ TEST(NoRepeatNGramLogitsProcessor, FormatMultigramAll) {
 
   auto logit_processor = onnxruntime::contrib::transformers::NoRepeatNGramLogitsProcessor<float>(
       /*ngram_size=*/{2},
-      /*ngram_history_a=*/0,
-      /*ngram_history_b=*/-1,
+      /*ngram_history_lengths=*/{-1},
       /*ngram_format_mode=*/0,
       /*ngram_format_tokens=*/{1, 2, 4, 0, 3, 0},
+      /*ngram_format_tokens_unique_sorted=*/{0, 1, 2, 3, 4},
       /*ngram_format_tokens_num_exclusions=*/3,
+      /*ngram_format_tokens_lengths=*/{2, 1, 1},
       /*ngram_format_tokens_max_exclusion_length=*/2);
 
   callLogitProcessor(batch_beam_size, scores, tokens, &logit_processor);
@@ -170,11 +173,12 @@ TEST(NoRepeatNGramLogitsProcessor, FormatMultigramSimple) {
 
   auto logit_processor = onnxruntime::contrib::transformers::NoRepeatNGramLogitsProcessor<float>(
       /*ngram_size=*/{2},
-      /*ngram_history_a=*/2,
-      /*ngram_history_b=*/3,
+      /*ngram_history_lengths=*/{7},
       /*ngram_format_mode=*/2,
       /*ngram_format_tokens=*/{1, 2, 4, 0, 3, 0},
+      /*ngram_format_tokens_unique_sorted=*/{0, 1, 2, 3, 4},
       /*ngram_format_tokens_num_exclusions=*/3,
+      /*ngram_format_tokens_lengths=*/{2, 1, 1},
       /*ngram_format_tokens_max_exclusion_length=*/2);
 
   callLogitProcessor(batch_beam_size, scores, tokens, &logit_processor);
@@ -203,11 +207,12 @@ TEST(NoRepeatNGramLogitsProcessor, FormatUnigramAnyVariableSizedNGramHistory) {
 
   auto logit_processor = onnxruntime::contrib::transformers::NoRepeatNGramLogitsProcessor<float>(
       /*ngram_size=*/{2, 3},
-      /*ngram_history_a=*/2,
-      /*ngram_history_b=*/3,
+      /*ngram_history_lengths=*/{7, 9},
       /*ngram_format_mode=*/1,
       /*ngram_format_tokens=*/{1, 4, 3},
+      /*ngram_format_tokens_unique_sorted=*/{1, 3, 4},
       /*ngram_format_tokens_num_exclusions=*/3,
+      /*ngram_format_tokens_lengths=*/{1, 1, 1},
       /*ngram_format_tokens_max_exclusion_length=*/1);
 
   callLogitProcessor(batch_beam_size, scores, tokens, &logit_processor);
@@ -237,11 +242,12 @@ TEST(NoRepeatNGramLogitsProcessor, FormatUnigramAllVariableSizedNGramHistory) {
 
   auto logit_processor = onnxruntime::contrib::transformers::NoRepeatNGramLogitsProcessor<float>(
       /*ngram_size=*/{2, 3},
-      /*ngram_history_a=*/2,
-      /*ngram_history_b=*/3,
+      /*ngram_history_lengths=*/{7, 9},
       /*ngram_format_mode=*/0,
       /*ngram_format_tokens=*/{1, 4, 3},
+      /*ngram_format_tokens_unique_sorted=*/{1, 3, 4},
       /*ngram_format_tokens_num_exclusions=*/3,
+      /*ngram_format_tokens_lengths=*/{1, 1, 1},
       /*ngram_format_tokens_max_exclusion_length=*/1);
 
   callLogitProcessor(batch_beam_size, scores, tokens, &logit_processor);
@@ -271,11 +277,12 @@ TEST(NoRepeatNGramLogitsProcessor, FormatUnigramSimpleVariableSizedNGramHistory)
 
   auto logit_processor = onnxruntime::contrib::transformers::NoRepeatNGramLogitsProcessor<float>(
       /*ngram_size=*/{2, 3},
-      /*ngram_history_a=*/2,
-      /*ngram_history_b=*/3,
+      /*ngram_history_lengths=*/{7, 9},
       /*ngram_format_mode=*/2,
       /*ngram_format_tokens=*/{1, 4, 3},
+      /*ngram_format_tokens_unique_sorted=*/{1, 3, 4},
       /*ngram_format_tokens_num_exclusions=*/3,
+      /*ngram_format_tokens_lengths=*/{1, 1, 1},
       /*ngram_format_tokens_max_exclusion_length=*/1);
 
   callLogitProcessor(batch_beam_size, scores, tokens, &logit_processor);
@@ -423,6 +430,35 @@ std::vector<std::vector<float>> SequentialConstraintsTestRunner(
     }
   }
 
+  auto any_allowed_span = gsl::span<bool>(new bool[vocab_size], vocab_size);
+  auto next_constraint_allowed_span = gsl::span<bool>(new bool[vocab_size], vocab_size);
+  auto has_specific_allowed_tokens_span = gsl::span<bool>(new bool[vocab_size], vocab_size);
+
+  std::fill_n(any_allowed_span.begin(), vocab_size, false);
+  std::fill_n(next_constraint_allowed_span.begin(), vocab_size, false);
+  std::fill_n(has_specific_allowed_tokens_span.begin(), vocab_size, false);
+
+  int PADDING_RULE_ = -1;
+  int ANY_RULE_ = -2;
+  int NEXT_RULE_ = -3;
+  for (int vocab_index = 0; vocab_index < vocab_size; vocab_index++) {
+    assert(vocab_index * max_grammar_rule_length + max_grammar_rule_length <= static_cast<int>(flattened_grammar.size()));
+    gsl::span<const int32_t> rule_span = AsSpan(grammar.at(vocab_index));
+    // we go over the span
+    for (int j = 0; j < max_grammar_rule_length; j++) {
+      int32_t token_id = rule_span[j];
+      if (token_id == PADDING_RULE_) {
+        break;
+      } else if (token_id == ANY_RULE_) {
+        any_allowed_span[vocab_index] = true;
+      } else if (token_id == NEXT_RULE_) {
+        next_constraint_allowed_span[vocab_index] = true;
+      } else {
+        has_specific_allowed_tokens_span[vocab_index] = true;
+      }
+    }
+  }
+
   gsl::span<int32_t> grammar_span(gsl::make_span(
       flattened_grammar));
 
@@ -431,7 +467,10 @@ std::vector<std::vector<float>> SequentialConstraintsTestRunner(
       grammar_span,
       batch_beam_size,
       max_grammar_rule_length,
-      vocab_size);
+      vocab_size,
+      any_allowed_span,
+      next_constraint_allowed_span,
+      has_specific_allowed_tokens_span);
 
   // loop over the sequence_vectors, only take the first i-th tokens in the sequence
   // only when we pass the whole original sequence vector,
