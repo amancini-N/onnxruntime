@@ -471,6 +471,7 @@ void LogitsProcessorList::Process(const ISequences* sequences,
 template class MinLengthLogitsProcessor<float>;
 template class MaxLengthLogitsProcessor<float>;
 template class SequentialConstraintsFSALogitsProcessor<float>;
+template class NoRepeatNGramLogitsProcessor<float>;
 
 }  // namespace transformers
 }  // namespace contrib
