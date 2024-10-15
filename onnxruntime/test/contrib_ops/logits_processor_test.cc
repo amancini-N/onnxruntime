@@ -299,6 +299,76 @@ TEST(NoRepeatNGramLogitsProcessor, FormatUnigramSimpleVariableSizedNGramHistory)
   }
 }
 
+TEST(NoRepeatNGramLogitsProcessor, MultipleSizesWithUnboundHistory) {
+  int batch_beam_size = 4;
+  int vocab_size = 6;
+  auto tokens = std::vector<std::vector<int>>{{1, 2, 5, 1, 4, 2, 2, 1},
+                                              {1, 2, 3, 1, 1, 2, 4, 1},
+                                              {5, 2, 0, 1, 5, 2, 1, 1},
+                                              {5, 2, 1, 1, 5, 2, 1, 1}};
+  auto scores_v = std::vector<float>(batch_beam_size * vocab_size, 0.0);
+  auto scores_span = gsl::make_span(scores_v);
+  auto scores = onnxruntime::contrib::transformers::NextTokenScores<float>{scores_span, batch_beam_size, vocab_size};
+
+  auto logit_processor = onnxruntime::contrib::transformers::NoRepeatNGramLogitsProcessor<float>(
+      /*ngram_size=*/{2, 3},
+      /*ngram_history_lengths=*/{-1, -1},
+      /*ngram_format_mode=*/2,
+      /*ngram_format_tokens=*/{},
+      /*ngram_format_tokens_unique_sorted=*/{},
+      /*ngram_format_tokens_num_exclusions=*/0,
+      /*ngram_format_tokens_lengths=*/{},
+      /*ngram_format_tokens_max_exclusion_length=*/0);
+
+  callLogitProcessor(batch_beam_size, scores, tokens, &logit_processor);
+
+  auto low = std::numeric_limits<float>::lowest();
+  auto expected_scores = std::vector<std::vector<float>>{{0.0, 0.0, low, 0.0, low, 0.0},
+                                                         {0.0, low, low, 0.0, 0.0, 0.0},
+                                                         {0.0, low, 0.0, 0.0, 0.0, low},
+                                                         {0.0, low, 0.0, 0.0, 0.0, low}};
+  for (int i = 0; i < batch_beam_size; i++) {
+    for (int j = 0; j < vocab_size; j++) {
+      ASSERT_EQ(scores.GetScores(i)[j], expected_scores[i][j]);
+    }
+  }
+}
+
+TEST(NoRepeatNGramLogitsProcessor, MultipleSizesWithVariableHistory) {
+  int batch_beam_size = 4;
+  int vocab_size = 6;
+  auto tokens = std::vector<std::vector<int>>{{1, 2, 5, 1, 4, 2, 2, 1},
+                                              {1, 2, 3, 1, 1, 2, 4, 1},
+                                              {5, 2, 0, 1, 5, 2, 1, 1},
+                                              {5, 2, 1, 1, 5, 2, 1, 1}};
+  auto scores_v = std::vector<float>(batch_beam_size * vocab_size, 0.0);
+  auto scores_span = gsl::make_span(scores_v);
+  auto scores = onnxruntime::contrib::transformers::NextTokenScores<float>{scores_span, batch_beam_size, vocab_size};
+
+  auto logit_processor = onnxruntime::contrib::transformers::NoRepeatNGramLogitsProcessor<float>(
+      /*ngram_size=*/{2, 3},
+      /*ngram_history_lengths=*/{6, 8},
+      /*ngram_format_mode=*/2,
+      /*ngram_format_tokens=*/{},
+      /*ngram_format_tokens_unique_sorted=*/{},
+      /*ngram_format_tokens_num_exclusions=*/0,
+      /*ngram_format_tokens_lengths=*/{},
+      /*ngram_format_tokens_max_exclusion_length=*/0);
+
+  callLogitProcessor(batch_beam_size, scores, tokens, &logit_processor);
+
+  auto low = std::numeric_limits<float>::lowest();
+  auto expected_scores = std::vector<std::vector<float>>{{0.0, 0.0, 0.0, 0.0, low, 0.0},
+                                                         {0.0, low, low, 0.0, 0.0, 0.0},
+                                                         {0.0, low, 0.0, 0.0, 0.0, low},
+                                                         {0.0, low, 0.0, 0.0, 0.0, low}};
+  for (int i = 0; i < batch_beam_size; i++) {
+    for (int j = 0; j < vocab_size; j++) {
+      ASSERT_EQ(scores.GetScores(i)[j], expected_scores[i][j]);
+    }
+  }
+}
+
 TEST(MinLengthLogitsProcessor, MinLengthNotReached) {
   int min_length = 3;  // bigger than sequences length
   int eos_token_id = 0;

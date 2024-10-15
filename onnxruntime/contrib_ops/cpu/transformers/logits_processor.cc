@@ -183,24 +183,16 @@ template <typename T>
 void NoRepeatNGramLogitsProcessor<T>::Process(const ISequences* sequences,
                                               NextTokenScores<T>& next_token_scores) {
   int batch_beam_size = next_token_scores.batch_beam_size;
+  const int seq_len = sequences->GetSequenceLength();
   int config_length = static_cast<int>(ngram_size_.size());
   for (int c = 0; c < config_length; c++) {
     int ngram = ngram_size_[c];
-    if (ngram == 0 || ngram >= sequences->GetSequenceLength()) {
+    if (ngram == 0 || ngram >= seq_len) {
       continue;
     }
     int history_length = history_lengths_[c];
 
     gsl::index prefix_length = static_cast<gsl::index>(ngram) - 1;
-    // We assume history_length is sorted
-    if (c > 0) {
-      int prefix_to_increase = history_lengths_[c - 1] - ngram + 1;
-      prefix_length += prefix_to_increase;
-    }
-    const int seq_len = sequences->GetSequenceLength();
-    if (seq_len > history_length && history_length > 0) {
-      prefix_length += history_length - seq_len;
-    }
 
     if (seq_len <= prefix_length) {
       continue;
@@ -209,11 +201,13 @@ void NoRepeatNGramLogitsProcessor<T>::Process(const ISequences* sequences,
     for (int i = 0; i < batch_beam_size; i++) {
       gsl::span<T> beam_token_scores = next_token_scores.GetScores(i);
       gsl::span<const int32_t> sequence = sequences->GetSequence(i);
+      int seq_offset = seq_len;
       if (seq_len > history_length && history_length > 0) {
         sequence = sequence.subspan(seq_len - history_length);
+        seq_offset = history_length;
       }
 
-      gsl::span<const int32_t> prefix = sequence.subspan(seq_len - prefix_length);
+      gsl::span<const int32_t> prefix = sequence.subspan(seq_offset - prefix_length);
       ORT_ENFORCE(prefix.size() == narrow<size_t>(prefix_length));
 
       std::unordered_set<int32_t> blocked_word_ids;
