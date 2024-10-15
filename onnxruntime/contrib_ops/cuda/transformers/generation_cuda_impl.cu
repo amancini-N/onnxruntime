@@ -256,27 +256,24 @@ __global__ void LogitsProcessKernel(
           if (current_sequence_length >= no_repeat_ngram_size) {
             int history_length = no_repeat_ngram_history_lengths[i];
             int prefix_length = no_repeat_ngram_size - 1;
-            if (i > 0) {
-              prefix_length += no_repeat_ngram_history_lengths[i - 1] - no_repeat_ngram_size + 1;
-            }
 
             const int32_t* current_sequence = sequences + batch_beam_index * max_sequence_length;
 
+            int current_seq_offset = current_sequence_length;
             if (current_sequence_length > history_length && history_length > 0) {
-              prefix_length += history_length - current_sequence_length;
               current_sequence += current_sequence_length - history_length;
+              current_seq_offset = history_length;
             }
             if (current_sequence_length <= prefix_length) {
               continue;
             }
 
-            // TODO: arrived here, need to apply history logic and format tokens exclusion in this
             bool found = false;
             for (int i = no_repeat_ngram_size - 1; i < current_sequence_length; i++) {
               if (current_sequence[i] == word_id) {  // last token of n-gram matched
                 found = true;
                 for (int j = 0; j < prefix_length; j++) {  // match the remaining N-1 tokens
-                  if (current_sequence[i - j - 1] != current_sequence[current_sequence_length - 1 - j]) {
+                  if (current_sequence[i - j - 1] != current_sequence[current_seq_offset - 1 - j]) {
                     found = false;
                     break;
                   }
