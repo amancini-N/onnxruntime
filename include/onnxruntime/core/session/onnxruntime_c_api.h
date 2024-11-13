@@ -4656,6 +4656,21 @@ struct OrtApi {
                   _In_reads_(num_external_initializer_files) char* const* external_initializer_file_buffer_array,
                   _In_reads_(num_external_initializer_files) const size_t* external_initializer_file_lengths,
                   size_t num_external_initializer_files);
+
+  /** \brief Get a sequence of ::OrtValue tensors stored as an attribute in the graph node.
+   *
+   * Used in the CreateKernel callback of an OrtCustomOp to get a sequence of tensors attribute.
+   *
+   * \param[in] info ::OrtKernelInfo instance.
+   * \param[in] name UTF-8 null-terminated string representing the attribute's name.
+   * \param[in] allocator Allocator used to allocate the internal tensor state.
+   * \param[out] out Pointer of memory where the pointers of ::OrtValue tensors should be stored.
+   *                 If out is nullptr, the function will just return the number of tensors in out_length.
+   * \param[out] out_length Number of ::OrtValue tensors stored in out.
+   */
+  ORT_API2_STATUS(KernelInfoGetAttributeArray_tensor, _In_ const OrtKernelInfo* info, _In_z_ const char* name,
+                  _Inout_ OrtAllocator* allocator, _Outptr_ OrtValue** out, _Out_ size_t* out_length);
+
 };
 
 /*

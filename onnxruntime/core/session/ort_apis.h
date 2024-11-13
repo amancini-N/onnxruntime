@@ -523,4 +523,7 @@ ORT_API_STATUS_IMPL(SessionOptionsAppendExecutionProvider_VitisAI, _In_ OrtSessi
 ORT_API_STATUS_IMPL(KernelContext_GetScratchBuffer, _In_ const OrtKernelContext* context, _In_ const OrtMemoryInfo* mem_info, _In_ size_t count_or_bytes, _Outptr_ void** out);
 
 ORT_API_STATUS_IMPL(KernelInfoGetAllocator, _In_ const OrtKernelInfo* info, _In_ OrtMemType mem_type, _Outptr_ OrtAllocator** out);
+
+ORT_API_STATUS_IMPL(KernelInfoGetAttributeArray_tensor, _In_ const OrtKernelInfo* info, _In_z_ const char* name,
+                    _Inout_ OrtAllocator* allocator, _Outptr_ OrtValue** out, _Out_ size_t* out_length);
 }  // namespace OrtApis

@@ -12,6 +12,7 @@
 
 #include "core/common/gsl.h"
 #include "core/framework/data_types.h"
+#include "core/framework/TensorSeq.h"
 #include "core/framework/error_code_helper.h"
 #include "core/framework/onnxruntime_typeinfo.h"
 #include "core/framework/op_kernel_context_internal.h"
@@ -596,6 +597,61 @@ ORT_API_STATUS_IMPL(OrtApis::KernelInfoGetAttribute_tensor, _In_ const OrtKernel
 
     *out = value.release();
     return nullptr;
+  });
+}
+
+ORT_API_STATUS_IMPL(OrtApis::KernelInfoGetAttributeArray_tensor, _In_ const OrtKernelInfo* info, _In_z_ const char* name,
+                    _Inout_ OrtAllocator* allocator, _Outptr_ OrtValue** out, _Out_ size_t* out_length) {
+  return ExecuteIfCustomOpsApiEnabled([&]() -> OrtStatusPtr {
+    const auto* op_kinfo = reinterpret_cast<const onnxruntime::OpKernelInfo*>(info);
+
+    // Get TensorProto attribute
+    std::vector<onnx::TensorProto> tensor_protos;
+    auto status = op_kinfo->GetAttrs<onnx::TensorProto>(name, tensor_protos);
+    if (!status.IsOK()) {
+      return onnxruntime::ToOrtStatus(status);
+    }
+
+    // Initialize out_length
+    *out_length = tensor_protos.size();
+
+    // If no pointers are provided, return the length of the array
+    if (out == nullptr) {
+      return nullptr;
+    }
+
+    int i = 0;
+
+    for (const auto& tensor_proto : tensor_protos) {
+      // Determine the tensor's size in bytes.
+      size_t req_size = 0;
+      status = onnxruntime::utils::GetSizeInBytesFromTensorProto<0>(tensor_proto, &req_size);
+      if (!status.IsOK()) {
+        return onnxruntime::ToOrtStatus(status);
+      }
+
+      // Create Tensor that owns buffer memory that will be allocated with the provided OrtAllocator.
+      onnxruntime::TensorShape tensor_shape = onnxruntime::utils::GetTensorShapeFromTensorProto(tensor_proto);
+      const auto* type = onnxruntime::DataTypeImpl::TensorTypeFromONNXEnum(tensor_proto.data_type())->GetElementType();
+      onnxruntime::AllocatorPtr alloc_ptr = std::make_shared<onnxruntime::IAllocatorImplWrappingOrtAllocator>(allocator);
+      auto tensorp = std::make_unique<onnxruntime::Tensor>(type, tensor_shape, std::move(alloc_ptr));
+
+      // Deserialize TensorProto into pre-allocated, empty Tensor.
+      status = onnxruntime::utils::TensorProtoToTensor(onnxruntime::Env::Default(), nullptr, tensor_proto, *tensorp);
+      if (!status.IsOK()) {
+        return onnxruntime::ToOrtStatus(status);
+      }
+
+      // Initialize OrtValue from Tensor.
+      auto ml_tensor = onnxruntime::DataTypeImpl::GetType<onnxruntime::Tensor>();
+      auto value = std::make_unique<OrtValue>();
+      value->Init(tensorp.release(), ml_tensor, ml_tensor->GetDeleteFunc());
+
+      out[i++] = value.release();
+    }
+
+    return nullptr;
+
   });
 }
 
