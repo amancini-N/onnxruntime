@@ -2767,7 +2767,7 @@ static_assert(offsetof(OrtApi, AddExternalInitializersFromFilesInMemory) / sizeo
 static_assert(offsetof(OrtApi, KernelInfoGetAttributeArray_tensor) / sizeof(void*) == 280, "Size of version 19 API cannot change");
 
 // So that nobody forgets to finish an API version, this check will serve as a reminder:
-static_assert(std::string_view(ORT_VERSION) == "1.19.0.dev8",
+static_assert(std::string_view(ORT_VERSION) == "1.19.0.dev9",
               "ORT_Version change detected, please follow below steps to ensure OrtApi is updated properly");
 // 1. Update the hardcoded version string in above static_assert to silence it
 // 2. If there were any APIs added to ort_api_1_to_19 above:
