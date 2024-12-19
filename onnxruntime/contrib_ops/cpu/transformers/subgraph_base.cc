@@ -7,9 +7,9 @@
 #include "core/framework/tensorprotoutils.h"
 #include "core/framework/utils.h"
 #include "core/providers/cpu/tensor/utils.h"
-#include "core/common/gsl.h"
+#include <gsl/gsl>
 #include "contrib_ops/cpu/transformers/subgraph_base.h"
-#include "contrib_ops/cpu/transformers/dump_tensor.h"
+#include "contrib_ops/cpu/utils/dump_tensor.h"
 
 namespace onnxruntime {
 namespace contrib {
@@ -82,8 +82,7 @@ Status Subgraph::Setup(const SessionState& session_state,
     int idx;
     if (subgraph_map.GetIdx(entry->Name(), idx).IsOK()) {
       feed_names.push_back(entry->Name());
-    }
-    else {
+    } else {
       --num_implicit_inputs;
       used_implicit_inputs[i] = false;
     }

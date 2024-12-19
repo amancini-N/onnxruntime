@@ -26,6 +26,7 @@ class RotaryEmbedding final : public OpKernel {
   int rotary_embedding_dim;
   bool interleaved;
   int rope_style;
+  bool is_packed_batching;
 };
 
 }  // namespace contrib

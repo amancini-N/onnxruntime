@@ -1,4 +1,5 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
+// SPDX-FileCopyrightText: Copyright 2024 Arm Limited and/or its affiliates <open-source-office@arm.com>
 // Licensed under the MIT License.
 
 #include <memory>
@@ -76,7 +77,12 @@ std::unique_ptr<IExecutionProvider> DefaultMIGraphXExecutionProvider() {
       0,
       0,
       0,
-      nullptr};
+      nullptr,
+      1,
+      "./compiled_model.mxr",
+      1,
+      "./compiled_model.mxr",
+      1};
   return MIGraphXProviderFactoryCreator::Create(&params)->CreateProvider();
 #else
   return nullptr;
@@ -93,11 +99,13 @@ std::unique_ptr<IExecutionProvider> MIGraphXExecutionProviderWithOptions(const O
   return nullptr;
 }
 
-std::unique_ptr<IExecutionProvider> OpenVINOExecutionProviderWithOptions(const OrtOpenVINOProviderOptions* params) {
+std::unique_ptr<IExecutionProvider> OpenVINOExecutionProviderWithOptions(const ProviderOptions* params,
+                                                                         const SessionOptions* session_options) {
 #ifdef USE_OPENVINO
-  return OpenVINOProviderFactoryCreator::Create(params)->CreateProvider();
+  return OpenVINOProviderFactoryCreator::Create(params, session_options)->CreateProvider();
 #else
   ORT_UNUSED_PARAMETER(params);
+  ORT_UNUSED_PARAMETER(session_options);
   return nullptr;
 #endif
 }
@@ -105,7 +113,8 @@ std::unique_ptr<IExecutionProvider> OpenVINOExecutionProviderWithOptions(const O
 std::unique_ptr<IExecutionProvider> DefaultOpenVINOExecutionProvider() {
 #ifdef USE_OPENVINO
   ProviderOptions provider_options_map;
-  return OpenVINOProviderFactoryCreator::Create(&provider_options_map)->CreateProvider();
+  SessionOptions session_options;
+  return OpenVINOProviderFactoryCreator::Create(&provider_options_map, &session_options)->CreateProvider();
 #else
   return nullptr;
 #endif
@@ -113,6 +122,12 @@ std::unique_ptr<IExecutionProvider> DefaultOpenVINOExecutionProvider() {
 
 std::unique_ptr<IExecutionProvider> DefaultCudaExecutionProvider() {
 #ifdef USE_CUDA
+#ifdef USE_DML
+  const std::string no_cuda_ep_test = Env::Default().GetEnvironmentVar("NO_CUDA_TEST");
+  if (no_cuda_ep_test == "1") {
+    return nullptr;
+  }
+#endif
   OrtCUDAProviderOptionsV2 provider_options{};
   provider_options.do_copy_in_default_stream = true;
   provider_options.use_tf32 = false;
@@ -125,6 +140,12 @@ std::unique_ptr<IExecutionProvider> DefaultCudaExecutionProvider() {
 #ifdef ENABLE_CUDA_NHWC_OPS
 std::unique_ptr<IExecutionProvider> DefaultCudaNHWCExecutionProvider() {
 #if defined(USE_CUDA)
+#ifdef USE_DML
+  const std::string no_cuda_ep_test = Env::Default().GetEnvironmentVar("NO_CUDA_TEST");
+  if (no_cuda_ep_test == "1") {
+    return nullptr;
+  }
+#endif
   OrtCUDAProviderOptionsV2 provider_options{};
   provider_options.do_copy_in_default_stream = true;
   provider_options.use_tf32 = false;
@@ -167,19 +188,19 @@ std::unique_ptr<IExecutionProvider> DnnlExecutionProviderWithOptions(const OrtDn
   return nullptr;
 }
 
-// std::unique_ptr<IExecutionProvider> DefaultTvmExecutionProvider() {
-// #ifdef USE_TVM
-//   return TVMProviderFactoryCreator::Create("")->CreateProvider();
-// #else
-//   return nullptr;
-// #endif
-// }
-
 std::unique_ptr<IExecutionProvider> DefaultNnapiExecutionProvider() {
 // The NNAPI EP uses a stub implementation on non-Android platforms so cannot be used to execute a model.
 // Manually append an NNAPI EP instance to the session to unit test the GetCapability and Compile implementation.
 #if defined(USE_NNAPI) && defined(__ANDROID__)
   return NnapiProviderFactoryCreator::Create(0, {})->CreateProvider();
+#else
+  return nullptr;
+#endif
+}
+
+std::unique_ptr<IExecutionProvider> DefaultVSINPUExecutionProvider() {
+#if defined(USE_VSINPU)
+  return VSINPUProviderFactoryCreator::Create()->CreateProvider();
 #else
   return nullptr;
 #endif
@@ -193,11 +214,11 @@ std::unique_ptr<IExecutionProvider> DefaultRknpuExecutionProvider() {
 #endif
 }
 
-std::unique_ptr<IExecutionProvider> DefaultAclExecutionProvider(bool enable_arena) {
+std::unique_ptr<IExecutionProvider> DefaultAclExecutionProvider(bool enable_fast_math) {
 #ifdef USE_ACL
-  return ACLProviderFactoryCreator::Create(enable_arena)->CreateProvider();
+  return ACLProviderFactoryCreator::Create(enable_fast_math)->CreateProvider();
 #else
-  ORT_UNUSED_PARAMETER(enable_arena);
+  ORT_UNUSED_PARAMETER(enable_fast_math);
   return nullptr;
 #endif
 }
@@ -230,14 +251,14 @@ std::unique_ptr<IExecutionProvider> DefaultCoreMLExecutionProvider(bool use_mlpr
   // The test will create a model but execution of it will obviously fail.
 #if defined(USE_COREML) && defined(__APPLE__)
   // We want to run UT on CPU only to get output value without losing precision
-  uint32_t coreml_flags = 0;
-  coreml_flags |= COREML_FLAG_USE_CPU_ONLY;
+  auto option = ProviderOptions();
+  option[kCoremlProviderOption_MLComputeUnits] = "CPUOnly";
 
   if (use_mlprogram) {
-    coreml_flags |= COREML_FLAG_CREATE_MLPROGRAM;
+    option[kCoremlProviderOption_ModelFormat] = "MLProgram";
   }
 
-  return CoreMLProviderFactoryCreator::Create(coreml_flags)->CreateProvider();
+  return CoreMLProviderFactoryCreator::Create(option)->CreateProvider();
 #else
   ORT_UNUSED_PARAMETER(use_mlprogram);
   return nullptr;
@@ -287,6 +308,19 @@ std::unique_ptr<IExecutionProvider> DefaultXnnpackExecutionProvider() {
 #endif
 }
 
+std::unique_ptr<IExecutionProvider> DefaultWebGpuExecutionProvider() {
+#ifdef USE_WEBGPU
+  ConfigOptions config_options{};
+  // Disable storage buffer cache
+  ORT_ENFORCE(config_options.AddConfigEntry(webgpu::options::kStorageBufferCacheMode,
+                                            webgpu::options::kBufferCacheMode_Disabled)
+                  .IsOK());
+  return WebGpuProviderFactoryCreator::Create(config_options)->CreateProvider();
+#else
+  return nullptr;
+#endif
+}
+
 std::unique_ptr<IExecutionProvider> DefaultCannExecutionProvider() {
 #ifdef USE_CANN
   OrtCANNProviderOptions provider_options{};
@@ -298,6 +332,12 @@ std::unique_ptr<IExecutionProvider> DefaultCannExecutionProvider() {
 
 std::unique_ptr<IExecutionProvider> DefaultDmlExecutionProvider() {
 #ifdef USE_DML
+#ifdef USE_CUDA
+  const std::string no_dml_ep_test = Env::Default().GetEnvironmentVar("NO_DML_TEST");
+  if (no_dml_ep_test == "1") {
+    return nullptr;
+  }
+#endif
   ConfigOptions config_options{};
   if (auto factory = DMLProviderFactoryCreator::CreateFromDeviceOptions(config_options, nullptr, false, false)) {
     return factory->CreateProvider();

@@ -7,6 +7,7 @@
 #include "core/common/safeint.h"
 #include "core/common/span_utils.h"
 #include "contrib_ops/cpu/transformers/logits_processor.h"
+#include "contrib_ops/cpu/utils/dump_tensor.h"
 #include <vector>
 #include <numeric>
 #include <algorithm>

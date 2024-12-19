@@ -4,7 +4,7 @@
 #include <memory>
 #include <vector>
 #include "gtest/gtest.h"
-#include "core/common/gsl.h"
+#include <gsl/gsl>
 #include "core/session/onnxruntime_cxx_api.h"
 #include "test/common/cuda_op_test_utils.h"
 #include "test/providers/provider_test_utils.h"
@@ -76,6 +76,9 @@ TEST(BeamSearchTest, GptBeamSearchFp32) {
   const char* const output_names[] = {"sequences"};
 
   Ort::SessionOptions session_options;
+#if defined(USE_CUDA) && defined(USE_DML)
+  SKIP_CUDA_TEST_WITH_DML;
+#endif
 #ifdef USE_CUDA
   OrtCUDAProviderOptionsV2 cuda_options;
   cuda_options.use_tf32 = false;
@@ -169,6 +172,9 @@ TEST(BeamSearchTest, GptBeamSearchFp16) {
   bool enable_rocm = (nullptr != DefaultRocmExecutionProvider().get());
   if (enable_cuda || enable_rocm) {
     Ort::SessionOptions session_options;
+#if defined(USE_CUDA) && defined(USE_DML)
+    SKIP_CUDA_TEST_WITH_DML;
+#endif
 #ifdef USE_CUDA
     OrtCUDAProviderOptionsV2 cuda_options;
     cuda_options.use_tf32 = false;
@@ -413,6 +419,20 @@ TEST(BeamSearchTest, DummyT5WithOuterScopeInitializers) {
   tester.ConfigEp(DefaultCpuExecutionProvider());
   tester.AddInput("encoder_input_ids", {1, 5}, {14, 6, 13, 9, 7});
   tester.AddOutput("sequences", {1, 3, 10}, {2, 16, 6, 14, 1, 15, 6, 14, 1, 15, 2, 3, 4, 15, 6, 14, 1, 15, 6, 14, 2, 16, 6, 14, 1, 15, 6, 14, 1, 14});
+#ifdef USE_CUDA
+  tester.ConfigEp(DefaultCudaExecutionProvider());
+#endif
+  tester.RunWithConfig();
+}
+
+TEST(BeamSearchTest, DummyT5WithSequenceInputIds) {
+#if defined(USE_CUDA) && defined(USE_DML)
+  SKIP_CUDA_TEST_WITH_DML;
+#endif
+  ModelTester tester(CurrentTestName(), ORT_TSTR("testdata/dummy_t5_with_sequence_input_ids.onnx"));
+  tester.ConfigEp(DefaultCpuExecutionProvider());
+  tester.AddInput("encoder_input_ids", {1, 5}, {16, 17, 1, 0, 8});
+  tester.AddOutput("sequences", {1, 3, 10}, {2, 19, 18, 3, 8, 8, 8, 8, 8, 8, 2, 19, 18, 3, 10, 19, 18, 3, 8, 8, 2, 19, 18, 15, 13, 13, 13, 13, 13, 13});
 #ifdef USE_CUDA
   tester.ConfigEp(DefaultCudaExecutionProvider());
 #endif
