@@ -623,10 +623,8 @@ ORT_API_STATUS_IMPL(OrtApis::KernelInfoGetAttributeArray_tensor, _In_ const OrtK
       return nullptr;
     }
 
-    const auto graph_location = op_kinfo->GetGraphLocation();
     // graph_location is path to .onnx file
     const auto model_path = std::filesystem::path(op_kinfo->GetGraphLocation());
-    const auto model_dir = model_path.parent_path();
 
     int i = 0;
 
@@ -645,7 +643,7 @@ ORT_API_STATUS_IMPL(OrtApis::KernelInfoGetAttributeArray_tensor, _In_ const OrtK
       auto tensorp = std::make_unique<onnxruntime::Tensor>(type, tensor_shape, std::move(alloc_ptr));
 
       // Deserialize TensorProto into pre-allocated, empty Tensor.
-      status = onnxruntime::utils::TensorProtoToTensor(onnxruntime::Env::Default(), model_dir, tensor_proto, *tensorp);
+      status = onnxruntime::utils::TensorProtoToTensor(onnxruntime::Env::Default(), model_path, tensor_proto, *tensorp);
       if (!status.IsOK()) {
         return onnxruntime::ToOrtStatus(status);
       }
