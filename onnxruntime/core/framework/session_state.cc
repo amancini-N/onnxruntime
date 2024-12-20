@@ -215,7 +215,7 @@ const KernelCreateInfo& SessionState::GetNodeKernelCreateInfo(NodeIndex node_ind
   return *entry->second;
 }
 
-Status SessionState::CreateKernels(const KernelRegistryManager& kernel_registry_manager) {
+Status SessionState::CreateKernels(const KernelRegistryManager& kernel_registry_manager, const std::basic_string<PATH_CHAR_TYPE>& graph_location) {
   const auto& nodes = graph_viewer_->Nodes();
   if (!nodes.empty()) {
     size_t max_nodeid = 0;
@@ -233,7 +233,7 @@ Status SessionState::CreateKernels(const KernelRegistryManager& kernel_registry_
       const IExecutionProvider& exec_provider = *execution_providers_.Get(exec_provider_name);
 
       // assumes vector is already resize()'ed to the number of nodes in the graph
-      ORT_RETURN_IF_ERROR(kernel_registry_manager.CreateKernel(node, exec_provider, *this, kci, session_kernels_[node.Index()]));
+      ORT_RETURN_IF_ERROR(kernel_registry_manager.CreateKernel(node, exec_provider, *this, kci, graph_location, session_kernels_[node.Index()]));
     }
   }
   node_index_info_.emplace(*graph_viewer_, ort_value_name_idx_map_);
@@ -1503,7 +1503,7 @@ Status SessionState::FinalizeSessionStateImpl(const std::basic_string<PATH_CHAR_
     CleanInitializedTensorsFromGraph();
   }
 
-  ORT_RETURN_IF_ERROR(CreateKernels(kernel_registry_manager));
+  ORT_RETURN_IF_ERROR(CreateKernels(kernel_registry_manager, graph_location));
 
   if (!disable_prepacking) {
     ORT_RETURN_IF_ERROR(PrepackConstantInitializedTensors(constant_initializers_use_count,

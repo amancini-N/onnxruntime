@@ -16,7 +16,8 @@ OpKernelInfo::OpKernelInfo(const onnxruntime::Node& node,
                            const OrtValueNameIdxMap& ort_value_name_idx_map,
                            const DataTransferManager& data_transfer_mgr,
                            const AllocatorMap& allocators,
-                           const ConfigOptions& config_options)
+                           const ConfigOptions& config_options,
+                           const std::string& graph_location)
     : OpNodeProtoHelper(&proto_helper_context_),
       node_(node),
       kernel_def_(kernel_def),
@@ -26,7 +27,8 @@ OpKernelInfo::OpKernelInfo(const onnxruntime::Node& node,
       data_transfer_mgr_(data_transfer_mgr),
       proto_helper_context_(node),
       allocators_(allocators),
-      config_options_(config_options) {
+      config_options_(config_options),
+      graph_location_(graph_location) {
 }
 
 OpKernelInfo::OpKernelInfo(const OpKernelInfo& other)

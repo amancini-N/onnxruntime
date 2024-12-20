@@ -19,13 +19,15 @@ Status KernelRegistryManager::CreateKernel(const Node& node,
                                            const IExecutionProvider& execution_provider,
                                            SessionState& session_state,
                                            const KernelCreateInfo& kernel_create_info,
+                                           const std::string& graph_location,
                                            std::unique_ptr<OpKernel>& out) const {
   OpKernelInfo kernel_info(node, *kernel_create_info.kernel_def, execution_provider,
                            session_state.GetConstantInitializedTensors(),
                            session_state.GetOrtValueNameIdxMap(),
                            session_state.GetDataTransferMgr(),
                            session_state.GetAllocators(),
-                           session_state.GetSessionOptions().config_options);
+                           session_state.GetSessionOptions().config_options,
+                           graph_location);
 
   return kernel_create_info.kernel_create_func(session_state.GetMutableFuncMgr(), kernel_info, out);
 }

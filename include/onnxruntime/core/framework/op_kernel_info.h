@@ -29,7 +29,8 @@ class OpKernelInfo : public OpNodeProtoHelper<ProtoHelperNodeContext> {
                         const OrtValueNameIdxMap& mlvalue_name_idx_map,
                         const DataTransferManager& data_transfer_mgr,
                         const AllocatorMap& allocators,
-                        const ConfigOptions& config_options);
+                        const ConfigOptions& config_options,
+                        const std::string& graph_location = "");
 
   OpKernelInfo(const OpKernelInfo& other);
 
@@ -53,6 +54,8 @@ class OpKernelInfo : public OpNodeProtoHelper<ProtoHelperNodeContext> {
 
   const ConfigOptions& GetConfigOptions() const { return config_options_; }
 
+  const std::string& GetGraphLocation() const { return graph_location_; }
+
  private:
   ORT_DISALLOW_MOVE(OpKernelInfo);
   ORT_DISALLOW_ASSIGNMENT(OpKernelInfo);
@@ -68,6 +71,7 @@ class OpKernelInfo : public OpNodeProtoHelper<ProtoHelperNodeContext> {
   ProtoHelperNodeContext proto_helper_context_;
   const AllocatorMap& allocators_;
   const ConfigOptions& config_options_;
+  const std::string& graph_location_;
 };
 
 }  // namespace onnxruntime

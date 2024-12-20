@@ -371,7 +371,7 @@ class SessionState {
   void CreateGraphInfo();
 
   // create kernels using info in kernel_create_info_map_
-  Status CreateKernels(const KernelRegistryManager& custom_registry_manager);
+  Status CreateKernels(const KernelRegistryManager& custom_registry_manager, const std::basic_string<PATH_CHAR_TYPE>& graph_location);
 
   // remove TensorProto versions of initializers from Graph instance
   // (replaced byOrtValue instances in initialized_tensors_)
