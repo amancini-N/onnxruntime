@@ -1196,12 +1196,37 @@ ONNX_MS_OPERATOR_SET_SCHEMA(BeamSearch, 1,
                                         "Beam scores consisting of log softmax scores for each vocabulary token and sum of log softmax of previously generated tokens in this beam."
                                         "Shape is (max_length - sequence_length, batch_size, num_beams, vocab_size)",
                                         "T", OpSchema::Optional)
+                                .Output(3, "chosen_token_logprobs",
+                                        "Per-token log-probabilities of the tokens chosen along each returned sequence, aligned with output 0 (sequences). "
+                                        "Position 0 (the decoder start token) is set to 0. Padded positions are 0. "
+                                        "Shape is (batch_size, num_return_sequences, max_length)",
+                                        "T", OpSchema::Optional)
                                 .TypeConstraint("T", {"tensor(float)", "tensor(float16)"}, "Constrain to float tensors.")
                                 .TypeConstraint("F", {"tensor(float)", "tensor(int32)", "tensor(float16)"}, "Constrain input type to float or int tensors.")
                                 .TypeConstraint("I", {"tensor(int32)"}, "Constrain to integer types")
                                 .TypeConstraint("M", {"tensor(int32)"}, "Constrain mask to integer types")
                                 .TypeAndShapeInferenceFunction([](ONNX_NAMESPACE::InferenceContext& ctx) {
                                   BeamSearchShapeInference(ctx);
+                                  if (ctx.getNumOutputs() > 3) {
+                                    ONNX_NAMESPACE::propagateElemTypeFromInputToOutput(ctx, 5, 3);
+                                    if (hasInputShape(ctx, 0)) {
+                                      auto& input_ids_dims = getInputShape(ctx, 0).dim();
+                                      const auto max_length = ctx.getInputData(1);
+                                      const auto num_return_sequences = ctx.getInputData(4);
+                                      int max_length_value = 0;
+                                      int num_return_sequences_value = 0;
+                                      if (max_length != nullptr && num_return_sequences != nullptr &&
+                                          input_ids_dims[0].has_dim_value() &&
+                                          ParseScalar(max_length, max_length_value) && max_length_value > 0 &&
+                                          ParseScalar(num_return_sequences, num_return_sequences_value) && num_return_sequences_value > 0) {
+                                        ONNX_NAMESPACE::TensorShapeProto chosen_lp_shape;
+                                        chosen_lp_shape.add_dim()->set_dim_value(input_ids_dims[0].dim_value());
+                                        chosen_lp_shape.add_dim()->set_dim_value(num_return_sequences_value);
+                                        chosen_lp_shape.add_dim()->set_dim_value(max_length_value);
+                                        updateOutputShape(ctx, 3, chosen_lp_shape);
+                                      }
+                                    }
+                                  }
                                 }));
 
 ONNX_MS_OPERATOR_SET_SCHEMA(WhisperBeamSearch, 1,

@@ -132,6 +132,10 @@ Status BeamSearchT5<T>::Execute(const FeedsFetchesManager& encoder_feeds_fetches
   // Update the flag to indicate whether scores exists in output
   this->parameters_->output_scores = (output_scores != nullptr);
 
+  // Optional output 3: per-token logprobs of the chosen tokens of each returned sequence.
+  // Shape matches `output_sequences`. Filled by the scorer after Finalize.
+  Tensor* output_chosen_logprobs = this->context_.Output(3, sequences_shape);
+
   // ------------------------------------
   // Call encoder subgraph.
   // ------------------------------------
@@ -428,6 +432,9 @@ Status BeamSearchT5<T>::Execute(const FeedsFetchesManager& encoder_feeds_fetches
   // Output per token scores
   gsl::span<const float> per_token_scores = beam_state.scores;
   this->beam_scorer_->OutputScores(per_token_scores, output_scores);
+
+  // Output per-token logprobs of chosen tokens for the returned sequences.
+  this->beam_scorer_->FinalizeTokenLogprobs(cpu_state.sequences, output_chosen_logprobs);
 
   return status;
 }

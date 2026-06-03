@@ -133,6 +133,18 @@ struct IBeamScorer {
                        gsl::span<const int32_t>& next_tokens,
                        gsl::span<const int32_t>& next_indices) = 0;
 
+  // Overload that also records the per-token log-probability of every candidate token
+  // in `next_token_logprobs` (same layout as `next_scores`: shape batch_size * 2 * num_beams).
+  // Default implementation delegates to the 4-arg overload, ignoring logprobs. Backends
+  // that support per-token logprob output should override this.
+  virtual void Process(ISequences& sequences,
+                       gsl::span<const float>& next_scores,
+                       gsl::span<const int32_t>& next_tokens,
+                       gsl::span<const int32_t>& next_indices,
+                       gsl::span<const float>& /*next_token_logprobs*/) {
+    Process(sequences, next_scores, next_tokens, next_indices);
+  }
+
   virtual void Finalize(ISequences& sequences,
                         gsl::span<const float>& final_beam_scores,
                         Tensor* output_sequences,
@@ -140,6 +152,13 @@ struct IBeamScorer {
 
   virtual void OutputScores(gsl::span<const float>& final_scores,
                             Tensor* output_scores) = 0;
+
+  // Write the per-token log-probabilities of the returned hypotheses into `output_chosen_logprobs`,
+  // which has shape (batch_size, num_return_sequences, max_length) and matches the layout of the
+  // `sequences` output. Position 0 (decoder start token) and padded positions are filled with 0.
+  // Default no-op for backends that don't track per-token logprobs.
+  virtual void FinalizeTokenLogprobs(ISequences& /*sequences*/,
+                                     Tensor* /*output_chosen_logprobs*/) {}
 
   virtual bool IsDone() const = 0;                    // GPU version will return false here, as it asynchronously queues up the event
   virtual bool IsDoneLater() const { return false; }  // GPU version waits for the asynchous result to complete here
