@@ -623,11 +623,30 @@ Status ProcessLogits(const OrtValue& logits,                                 // 
   gsl::span<const int32_t> next_tokens(beam_state->next_tokens.data(), beam_state->next_tokens.size());
   gsl::span<const int32_t> next_indices(beam_state->next_indices.data(), beam_state->next_indices.size());
 
-  beam_scorer->Process(
-      *sequences,
-      next_scores,
-      next_tokens,
-      next_indices);
+  gsl::span<float> next_token_logprobs_buf = beam_scorer->GetNextTokenLogprobsBuffer();
+  if (!next_token_logprobs_buf.empty()) {
+    gsl::span<const float> beam_scores_const(beam_state->beam_scores.data(), beam_state->beam_scores.size());
+    cuda::LaunchComputeNextTokenLogprobs(next_scores.data(),
+                                         next_indices.data(),
+                                         beam_scores_const.data(),
+                                         batch_size,
+                                         parameters->num_beams,
+                                         next_token_logprobs_buf.data(),
+                                         cuda_stream);
+    gsl::span<const float> next_token_logprobs(next_token_logprobs_buf.data(), next_token_logprobs_buf.size());
+    beam_scorer->Process(
+        *sequences,
+        next_scores,
+        next_tokens,
+        next_indices,
+        next_token_logprobs);
+  } else {
+    beam_scorer->Process(
+        *sequences,
+        next_scores,
+        next_tokens,
+        next_indices);
+  }
 
 #ifdef ENABLE_NVTX_PROFILE
   processLogitsRange.End();
@@ -641,10 +660,18 @@ struct CudaBeamSearchScorer : transformers::IBeamScorer {
                        AllocatorPtr& allocator, AllocatorPtr& allocator_cpu,
                        Stream* stream);
 
+  using transformers::IBeamScorer::Process;  // surface the 5-arg base overload
+
   void Process(transformers::ISequences& sequences,
                gsl::span<const float>& next_scores,
                gsl::span<const int32_t>& next_tokens,
                gsl::span<const int32_t>& next_indices) override;
+
+  void Process(transformers::ISequences& sequences,
+               gsl::span<const float>& next_scores,
+               gsl::span<const int32_t>& next_tokens,
+               gsl::span<const int32_t>& next_indices,
+               gsl::span<const float>& next_token_logprobs) override;
 
   void Finalize(transformers::ISequences& sequences,
                 gsl::span<const float>& final_beam_scores,
@@ -652,6 +679,11 @@ struct CudaBeamSearchScorer : transformers::IBeamScorer {
                 Tensor* output_sequence_scores) override;
 
   void OutputScores(gsl::span<const float>& final_scores, Tensor* output_scores) override;
+
+  void FinalizeTokenLogprobs(transformers::ISequences& sequences,
+                             Tensor* output_chosen_logprobs) override;
+
+  gsl::span<float> GetNextTokenLogprobsBuffer() override { return next_token_logprobs_scratch_; }
 
   bool IsDone() const override { return false; }  // For CUDA we speculatively run the next step while we wait for the GPU to report status. We use 'IsDoneLater()' for this
   bool IsDoneLater() const override;
@@ -689,6 +721,25 @@ struct CudaBeamSearchScorer : transformers::IBeamScorer {
   IAllocatorUniquePtr<cuda::HypothesisScore> hypothesis_scores_ptr_;  // num_beams_ * batch_size_, divided into num_beams_ chunks per BeamHypothesis in beam_hyps_
   IAllocatorUniquePtr<cuda::BeamHypotheses> beam_hyps_ptr_;
   gsl::span<cuda::BeamHypotheses> beam_hyps_;  // Shape is batch_size_
+
+  // Per-token logprob tracking (only populated if the consumer requests output 3 `chosen_token_logprobs`).
+  // Mirrors the CPU scorer's structure but with device-resident buffers.
+  IAllocatorUniquePtr<float> logprobs_history_buffer_ptr_;
+  gsl::span<float> logprobs_history_[2];  // Rotating, parallel to Sequences' two token buffers.
+  int current_logprobs_buffer_{0};
+
+  IAllocatorUniquePtr<float> next_beam_token_logprobs_ptr_;
+  gsl::span<float> next_beam_token_logprobs_;  // Parallel to next_beam_tokens_.
+
+  IAllocatorUniquePtr<float> hypothesis_logprobs_buffer_ptr_;
+  gsl::span<float> hypothesis_logprobs_buffer_;  // Parallel to hypothesis_buffer_.
+
+  // Pre-Process scratch: per-candidate-token logprobs (size 2 * batch_beam_size, parallel to next_scores).
+  // Filled by LaunchComputeNextTokenLogprobs in ProcessLogits, consumed by Process(5-arg).
+  IAllocatorUniquePtr<float> next_token_logprobs_scratch_ptr_;
+  gsl::span<float> next_token_logprobs_scratch_;
+
+  bool logprobs_tracking_enabled_{false};
 };
 
 template <typename TAlloc>
@@ -739,6 +790,23 @@ CudaBeamSearchScorer::CudaBeamSearchScorer(const transformers::IGenerationParame
   // Space to store intermediate sequence with length sequence_length, sequence_length + 1, ..., max_sequence_length.
   size_t per_beam = (SafeInt<size_t>(state_cpu_->max_length_) * (state_cpu_->max_length_ + 1) - (parameters.sequence_length - 1) * parameters.sequence_length) / 2;
   hypothesis_buffer_ = Allocate<int32_t>(allocator, batch_beam_size * per_beam, hypothesis_buffer_ptr_);
+
+  // Per-token logprob tracking: device-resident rotating history (parallel to Sequences),
+  // per-surviving-beam current logprob, and a hypothesis pool parallel to hypothesis_buffer_.
+  size_t history_size = batch_beam_size * state_cpu_->max_length_;
+  auto history_buffer = Allocate<float>(allocator, 2 * history_size, logprobs_history_buffer_ptr_);
+  logprobs_history_[0] = history_buffer.subspan(0, history_size);
+  logprobs_history_[1] = history_buffer.subspan(history_size);
+  CUDA_CALL_THROW(cudaMemsetAsync(history_buffer.data(), 0, history_buffer.size_bytes(), stream_));
+
+  next_beam_token_logprobs_ = Allocate<float>(allocator, batch_beam_size, next_beam_token_logprobs_ptr_);
+  CUDA_CALL_THROW(cudaMemsetAsync(next_beam_token_logprobs_.data(), 0, next_beam_token_logprobs_.size_bytes(), stream_));
+
+  hypothesis_logprobs_buffer_ = Allocate<float>(allocator, batch_beam_size * per_beam, hypothesis_logprobs_buffer_ptr_);
+  CUDA_CALL_THROW(cudaMemsetAsync(hypothesis_logprobs_buffer_.data(), 0, hypothesis_logprobs_buffer_.size_bytes(), stream_));
+
+  // Scratch for ProcessLogits to compute per-candidate-token logprobs; size matches next_scores (2 * batch_beam_size).
+  next_token_logprobs_scratch_ = Allocate<float>(allocator, 2 * batch_beam_size, next_token_logprobs_scratch_ptr_);
 }
 
 void CudaBeamSearchScorer::Process(transformers::ISequences& sequences,
@@ -768,6 +836,64 @@ void CudaBeamSearchScorer::Process(transformers::ISequences& sequences,
                                                           next_beam_tokens_,
                                                           next_beam_indices_,
                                                           stream_);
+}
+
+void CudaBeamSearchScorer::Process(transformers::ISequences& sequences,
+                                   gsl::span<const float>& next_scores,
+                                   gsl::span<const int32_t>& next_tokens,
+                                   gsl::span<const int32_t>& next_indices,
+                                   gsl::span<const float>& next_token_logprobs) {
+  ORT_ENFORCE(next_token_logprobs.size() == next_scores.size());
+
+  int sequence_length = sequences.GetSequenceLength();
+  gsl::span<const float> in_history(logprobs_history_[current_logprobs_buffer_].data(),
+                                    logprobs_history_[current_logprobs_buffer_].size());
+
+  cuda::LaunchBeamSearchScorer_ProcessWithLogprobs(*state_cpu_,
+                                                   *state_gpu_,
+                                                   sequences.GetCurrentDeviceSequences(),
+                                                   sequence_length,
+                                                   beam_hyps_,
+                                                   next_beam_scores_,
+                                                   next_beam_tokens_,
+                                                   next_beam_indices_,
+                                                   next_beam_token_logprobs_,
+                                                   hypothesis_buffer_,
+                                                   hypothesis_logprobs_buffer_,
+                                                   in_history,
+                                                   next_scores,
+                                                   next_tokens,
+                                                   next_indices,
+                                                   next_token_logprobs,
+                                                   stream_);
+  CUDA_CALL_THROW(cudaEventRecord(event_process_complete_.Get(), stream_));
+
+  cuda::LaunchBeamSearchScorer_AppendNextTokenToSequences(*state_cpu_,
+                                                          *state_gpu_,
+                                                          sequences.GetCurrentDeviceSequences(),
+                                                          sequences.GetNextDeviceSequences(),
+                                                          sequence_length,
+                                                          next_beam_tokens_,
+                                                          next_beam_indices_,
+                                                          stream_);
+
+  gsl::span<const float> append_in(logprobs_history_[current_logprobs_buffer_].data(),
+                                   logprobs_history_[current_logprobs_buffer_].size());
+  gsl::span<float> append_out(logprobs_history_[current_logprobs_buffer_ ^ 1].data(),
+                              logprobs_history_[current_logprobs_buffer_ ^ 1].size());
+  gsl::span<const float> next_lp_const(next_beam_token_logprobs_.data(), next_beam_token_logprobs_.size());
+  gsl::span<const int32_t> next_idx_const(next_beam_indices_.data(), next_beam_indices_.size());
+  cuda::LaunchAppendLogprobsToHistory(*state_cpu_,
+                                      *state_gpu_,
+                                      append_in,
+                                      append_out,
+                                      sequence_length,
+                                      next_lp_const,
+                                      next_idx_const,
+                                      stream_);
+
+  current_logprobs_buffer_ ^= 1;
+  logprobs_tracking_enabled_ = true;
 }
 
 bool CudaBeamSearchScorer::IsDoneLater() const {
@@ -802,11 +928,51 @@ void CudaOutputSequenceScores(CudaBeamSearchScorer* scorer,
                                         scorer->stream_);
 }
 
+template <typename T>
+void CudaOutputSequenceScoresWithLogprobs(CudaBeamSearchScorer* scorer,
+                                          transformers::ISequences& sequences,
+                                          gsl::span<const float>& final_beam_scores,
+                                          Tensor* output_sequences,
+                                          Tensor* output_sequence_scores) {
+  gsl::span<int32_t> output{output_sequences->MutableData<int32_t>(), static_cast<size_t>(output_sequences->Shape().Size())};
+
+  using CudaT = typename ToCudaType<T>::MappedType;
+  gsl::span<CudaT> sequence_scores;
+  if (output_sequence_scores) {
+    sequence_scores = gsl::span<CudaT>{(CudaT*)output_sequence_scores->MutableData<T>(), static_cast<size_t>(output_sequence_scores->Shape().Size())};
+  }
+
+  gsl::span<const float> history_in(scorer->logprobs_history_[scorer->current_logprobs_buffer_].data(),
+                                    scorer->logprobs_history_[scorer->current_logprobs_buffer_].size());
+  cuda::LaunchBeamSearchScorer_FinalizeWithLogprobs(scorer->state_cpu_->batch_size_,
+                                                    *scorer->state_gpu_,
+                                                    sequences.GetCurrentDeviceSequences(),
+                                                    sequences.GetSequenceLength(),
+                                                    scorer->beam_hyps_,
+                                                    final_beam_scores,
+                                                    history_in,
+                                                    scorer->hypothesis_logprobs_buffer_,
+                                                    scorer->hypothesis_buffer_,
+                                                    output,
+                                                    sequence_scores,
+                                                    scorer->stream_);
+}
+
 void CudaBeamSearchScorer::Finalize(transformers::ISequences& sequences,
                                     gsl::span<const float>& final_beam_scores,
                                     Tensor* output_sequences,
                                     Tensor* output_sequence_scores) {
   ORT_ENFORCE(output_sequences != nullptr);
+
+  if (logprobs_tracking_enabled_) {
+    if (output_sequence_scores == nullptr || output_sequence_scores->IsDataType<float>()) {
+      CudaOutputSequenceScoresWithLogprobs<float>(this, sequences, final_beam_scores, output_sequences, output_sequence_scores);
+    } else {
+      ORT_ENFORCE(output_sequence_scores->IsDataType<MLFloat16>());
+      CudaOutputSequenceScoresWithLogprobs<MLFloat16>(this, sequences, final_beam_scores, output_sequences, output_sequence_scores);
+    }
+    return;
+  }
 
   if (output_sequence_scores == nullptr || output_sequence_scores->IsDataType<float>()) {
     CudaOutputSequenceScores<float>(this, sequences, final_beam_scores, output_sequences, output_sequence_scores);
@@ -814,6 +980,29 @@ void CudaBeamSearchScorer::Finalize(transformers::ISequences& sequences,
     ORT_ENFORCE(output_sequence_scores->IsDataType<MLFloat16>());
     CudaOutputSequenceScores<MLFloat16>(this, sequences, final_beam_scores, output_sequences, output_sequence_scores);
   }
+}
+
+void CudaBeamSearchScorer::FinalizeTokenLogprobs(transformers::ISequences& /*sequences*/,
+                                                 Tensor* output_chosen_logprobs) {
+  if (output_chosen_logprobs == nullptr) {
+    return;
+  }
+  ORT_ENFORCE(output_chosen_logprobs->IsDataType<float>(),
+              "chosen_token_logprobs output must be float32");
+
+  gsl::span<float> output(output_chosen_logprobs->MutableData<float>(),
+                          static_cast<size_t>(output_chosen_logprobs->Shape().Size()));
+  CUDA_CALL_THROW(cudaMemsetAsync(output.data(), 0, output.size_bytes(), stream_));
+
+  if (!logprobs_tracking_enabled_) {
+    return;
+  }
+
+  cuda::LaunchBeamSearchScorer_OutputLogprobs(static_cast<int>(state_cpu_->batch_size_),
+                                              *state_gpu_,
+                                              beam_hyps_,
+                                              output,
+                                              stream_);
 }
 
 void CudaBeamSearchScorer::OutputScores(gsl::span<const float>& final_scores, Tensor* output_scores) {

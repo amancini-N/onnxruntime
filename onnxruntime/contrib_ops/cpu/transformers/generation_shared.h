@@ -160,6 +160,12 @@ struct IBeamScorer {
   virtual void FinalizeTokenLogprobs(ISequences& /*sequences*/,
                                      Tensor* /*output_chosen_logprobs*/) {}
 
+  // Returns a backend-owned writable buffer (size batch_size * 2 * num_beams) where the caller
+  // can stage per-candidate-token log-probabilities before passing them into Process(5-args).
+  // Used by CUDA where the buffer must live in device-accessible memory; CPU uses a heap
+  // vector instead and returns empty here. An empty span signals "no logprob support".
+  virtual gsl::span<float> GetNextTokenLogprobsBuffer() { return {}; }
+
   virtual bool IsDone() const = 0;                    // GPU version will return false here, as it asynchronously queues up the event
   virtual bool IsDoneLater() const { return false; }  // GPU version waits for the asynchous result to complete here
 

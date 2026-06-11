@@ -637,7 +637,26 @@ __device__ void BeamHypotheses::Add(const int32_t* hypothesis, int hypothesis_le
   for (; index > 0 && score > beams_[index - 1].score; index--)
     beams_[index] = beams_[index - 1];
 
-  beams_[index] = HypothesisScore{hypothesis, hypothesis_length, score};
+  beams_[index] = HypothesisScore{hypothesis, nullptr, hypothesis_length, score};
+}
+
+__device__ void BeamHypotheses::Add(const int32_t* hypothesis,
+                                    int hypothesis_length,
+                                    const float* logprobs,
+                                    float sum_logprobs) {
+  float score = sum_logprobs / pow(static_cast<float>(hypothesis_length), length_penalty_);
+
+  size_t index = beams_used_;
+  if (index == beams_count_) {
+    if (score <= beams_[--index].score)
+      return;
+  } else
+    beams_used_++;
+
+  for (; index > 0 && score > beams_[index - 1].score; index--)
+    beams_[index] = beams_[index - 1];
+
+  beams_[index] = HypothesisScore{hypothesis, logprobs, hypothesis_length, score};
 }
 
 __device__ bool BeamHypotheses::CanImprove(float best_sum_logprobs, int current_length) const {
@@ -667,6 +686,35 @@ __device__ void BeamHypotheses::Output(
 
     if (sequences_scores)
       sequences_scores[index] = (T)item.score;
+  }
+}
+
+template <typename T>
+__device__ void BeamHypotheses::Output(
+    int top_k,
+    int max_length,
+    int pad_token_id,
+    int32_t* sequences,
+    T* sequences_scores,
+    float* logprobs_out)  // shape (top_k, max_length), pre-zeroed by caller
+{
+  for (int index = 0; index < top_k; index++) {
+    auto& item = beams_[index];
+    int32_t* target = sequences + index * max_length;
+
+    for (int i = 0; i < item.hypothesis_length; i++)
+      target[i] = item.hypothesis[i];
+    for (int i = item.hypothesis_length; i < max_length; i++)
+      target[i] = pad_token_id;
+
+    if (sequences_scores)
+      sequences_scores[index] = (T)item.score;
+
+    if (logprobs_out && item.logprobs) {
+      float* lp_target = logprobs_out + index * max_length;
+      for (int i = 0; i < item.hypothesis_length; i++)
+        lp_target[i] = item.logprobs[i];
+    }
   }
 }
 
@@ -914,6 +962,342 @@ template void LaunchBeamSearchScorer_Finalize<__half>(
     gsl::span<int32_t> output,
     gsl::span<__half> sequence_scores,
     cudaStream_t stream);
+
+// --- Per-token logprob tracking: kernels mirror the standard ones above, but additionally
+// thread per-candidate-token log-probabilities through the EOS clone path, the surviving-beam
+// path, and the rotating history buffer. Pure additions; no existing kernels are modified.
+
+__global__ void BeamSearchScorer_ProcessWithLogprobs(BeamScorerState& state_cpu,
+                                                     BeamScorerState& state,
+                                                     const int32_t* sequences_buffer,
+                                                     int sequence_length,
+                                                     BeamHypotheses* beam_hyps_,
+                                                     float* next_beam_scores_,
+                                                     int32_t* next_beam_tokens_,
+                                                     int32_t* next_beam_indices_,
+                                                     float* next_beam_token_logprobs_,
+                                                     int32_t* hypothesis_buffer_,
+                                                     float* hypothesis_logprobs_buffer_,
+                                                     const float* logprobs_history_in,
+                                                     const float* next_scores,
+                                                     const int32_t* next_tokens,
+                                                     const int32_t* next_indices,
+                                                     const float* next_token_logprobs) {
+  int batch = threadIdx.x;
+  int batch_start = batch * state.num_beams_;
+
+  cuda::BeamHypotheses& beam_hyp = beam_hyps_[batch];
+  if (!beam_hyp.done_) {
+    size_t beam_idx = 0;
+    size_t top_k = 2 * state.num_beams_;
+    for (size_t j = 0; j < top_k; j++) {
+      int32_t next_token = next_tokens[batch * top_k + j];
+      float next_score = next_scores[batch * top_k + j];
+      int32_t next_index = next_indices[batch * top_k + j];
+      float next_token_lp = next_token_logprobs[batch * top_k + j];
+
+      int batch_beam_idx = batch_start + next_index;
+      if ((state.eos_token_id_ >= 0) && (next_token == state.eos_token_id_)) {
+        bool is_beam_token_worse_than_top_num_beams = (j >= state.num_beams_);
+        if (is_beam_token_worse_than_top_num_beams) {
+          continue;
+        }
+
+        // Clone token sequence and parent's logprob history. Both share the same offset bump,
+        // so the resulting hypothesis_buffer_/hypothesis_logprobs_buffer_ pointers stay aligned.
+        int clone_offset = atomicAdd(&state.hypothesis_buffer_used_, sequence_length);
+        const int32_t* src_tokens = sequences_buffer + batch_beam_idx * state.max_length_;
+        const float* src_lps = logprobs_history_in + batch_beam_idx * state.max_length_;
+        int32_t* clone_tokens = hypothesis_buffer_ + clone_offset;
+        float* clone_lps = hypothesis_logprobs_buffer_ + clone_offset;
+
+        for (unsigned i = 0; i < sequence_length; i++) {
+          clone_tokens[i] = src_tokens[i];
+          clone_lps[i] = src_lps[i];
+        }
+        // The hypothesis-stored logprobs match the returned sequence (which does not include
+        // the EOS token itself); the EOS token's logprob is implicit in `next_score`.
+        beam_hyp.Add(clone_tokens, sequence_length, clone_lps, next_score);
+        (void)next_token_lp;  // EOS lp folded into next_score
+      } else {
+        next_beam_scores_[batch_start + beam_idx] = next_score;
+        next_beam_tokens_[batch_start + beam_idx] = next_token;
+        next_beam_indices_[batch_start + beam_idx] = batch_beam_idx;
+        next_beam_token_logprobs_[batch_start + beam_idx] = next_token_lp;
+        ++beam_idx;
+      }
+
+      if (beam_idx == state.num_beams_)
+        break;
+    }
+
+    if (beam_hyp.beams_used_ == state.num_beams_) {
+      if (state.early_stopping_ || !beam_hyp.CanImprove(*std::max_element(next_scores + batch_start, next_scores + batch_start + top_k), sequence_length)) {
+        beam_hyp.done_ = true;
+        if (atomicAdd(&state.not_done_count_, -1) == 1)
+          state_cpu.not_done_count_ = 0;
+      }
+    }
+  } else {
+    for (size_t beam_idx = 0; beam_idx < state.num_beams_; beam_idx++) {
+      next_beam_scores_[batch_start + beam_idx] = 0.0f;
+      next_beam_tokens_[batch_start + beam_idx] = state.pad_token_id_;
+      next_beam_indices_[batch_start + beam_idx] = 0;
+      next_beam_token_logprobs_[batch_start + beam_idx] = 0.0f;
+    }
+  }
+}
+
+void LaunchBeamSearchScorer_ProcessWithLogprobs(BeamScorerState& state_cpu,
+                                                BeamScorerState& state,
+                                                gsl::span<const int32_t> sequences,
+                                                int sequence_length,
+                                                gsl::span<BeamHypotheses> beam_hyps,
+                                                gsl::span<float> next_beam_scores,
+                                                gsl::span<int32_t> next_beam_tokens,
+                                                gsl::span<int32_t> next_beam_indices,
+                                                gsl::span<float> next_beam_token_logprobs,
+                                                gsl::span<int32_t> hypothesis_buffer,
+                                                gsl::span<float> hypothesis_logprobs_buffer,
+                                                gsl::span<const float> logprobs_history_in,
+                                                gsl::span<const float> next_scores,
+                                                gsl::span<const int32_t> next_tokens,
+                                                gsl::span<const int32_t> next_indices,
+                                                gsl::span<const float> next_token_logprobs,
+                                                cudaStream_t stream) {
+  BeamSearchScorer_ProcessWithLogprobs<<<1, state_cpu.batch_size_, 0, stream>>>(
+      state_cpu,
+      state,
+      sequences.data(),
+      sequence_length,
+      beam_hyps.data(),
+      next_beam_scores.data(),
+      next_beam_tokens.data(),
+      next_beam_indices.data(),
+      next_beam_token_logprobs.data(),
+      hypothesis_buffer.data(),
+      hypothesis_logprobs_buffer.data(),
+      logprobs_history_in.data(),
+      next_scores.data(),
+      next_tokens.data(),
+      next_indices.data(),
+      next_token_logprobs.data());
+}
+
+__global__ void AppendLogprobsToHistory1(BeamScorerState& state,
+                                         int batch_beam_size,
+                                         const float* logprobs_history_in,
+                                         float* logprobs_history_out,
+                                         int sequence_length,
+                                         const int32_t* next_beam_indices_) {
+  int beam_idx = threadIdx.x + blockIdx.x * blockDim.x;
+  if (beam_idx >= batch_beam_size)
+    return;
+  int sequence_index = threadIdx.y + blockIdx.y * blockDim.y;
+  if (sequence_index >= sequence_length)
+    return;
+
+  int beam_index = next_beam_indices_[beam_idx];
+  logprobs_history_out[beam_idx * state.max_length_ + sequence_index] =
+      logprobs_history_in[beam_index * state.max_length_ + sequence_index];
+}
+
+__global__ void AppendLogprobsToHistory2(BeamScorerState& state,
+                                         float* logprobs_history_out,
+                                         int sequence_length,
+                                         const float* next_beam_token_logprobs_) {
+  int beam_idx = threadIdx.x;
+  logprobs_history_out[beam_idx * state.max_length_ + sequence_length] = next_beam_token_logprobs_[beam_idx];
+}
+
+void LaunchAppendLogprobsToHistory(BeamScorerState& state_cpu,
+                                   BeamScorerState& state,
+                                   gsl::span<const float> logprobs_history_in,
+                                   gsl::span<float> logprobs_history_out,
+                                   int sequence_length,
+                                   gsl::span<const float> next_beam_token_logprobs,
+                                   gsl::span<const int32_t> next_beam_indices,
+                                   cudaStream_t stream) {
+  const int max_threads = 512;
+  int batch_beam_size = state_cpu.batch_size_ * state_cpu.num_beams_;
+  dim3 block_size;
+  dim3 grid_size;
+  if (batch_beam_size * sequence_length <= max_threads) {
+    block_size.x = batch_beam_size;
+    block_size.y = sequence_length;
+  } else {
+    if (sequence_length <= max_threads) {
+      block_size.x = max_threads / sequence_length;
+      block_size.y = sequence_length;
+      grid_size.x = (batch_beam_size + block_size.x - 1) / block_size.x;
+    } else {
+      block_size.x = 1;
+      block_size.y = max_threads;
+      grid_size.x = batch_beam_size;
+      grid_size.y = (sequence_length + block_size.y - 1) / block_size.y;
+    }
+  }
+  AppendLogprobsToHistory1<<<grid_size, block_size, 0, stream>>>(state,
+                                                                 batch_beam_size,
+                                                                 logprobs_history_in.data(),
+                                                                 logprobs_history_out.data(),
+                                                                 sequence_length,
+                                                                 next_beam_indices.data());
+
+  AppendLogprobsToHistory2<<<1, batch_beam_size, 0, stream>>>(state,
+                                                              logprobs_history_out.data(),
+                                                              sequence_length,
+                                                              next_beam_token_logprobs.data());
+}
+
+template <typename T>
+__global__ void BeamSearchScorer_FinalizeWithLogprobs(BeamScorerState& state,
+                                                      const int32_t* sequences_buffer,
+                                                      int sequence_length,
+                                                      BeamHypotheses* beam_hyps_,
+                                                      const float* final_beam_scores,
+                                                      const float* logprobs_history_in,
+                                                      float* hypothesis_logprobs_buffer_,
+                                                      int32_t* hypothesis_buffer_,
+                                                      int32_t* output,
+                                                      T* sequence_scores) {
+  int batch_index = blockIdx.x * blockDim.x + threadIdx.x;
+  if (batch_index >= state.batch_size_)
+    return;
+
+  cuda::BeamHypotheses& beam_hyp = beam_hyps_[batch_index];
+  if (!beam_hyp.done_) {
+    for (size_t beam_index = 0; beam_index < state.num_beams_; beam_index++) {
+      size_t batch_beam_index = batch_index * state.num_beams_ + beam_index;
+      float final_score = final_beam_scores[batch_beam_index];
+
+      // Clone tokens AND the current logprob history slice into the parallel buffers, then
+      // record the new hypothesis with both pointers.
+      int clone_offset = atomicAdd(&state.hypothesis_buffer_used_, sequence_length);
+      const int32_t* src_tokens = sequences_buffer + batch_beam_index * state.max_length_;
+      const float* src_lps = logprobs_history_in + batch_beam_index * state.max_length_;
+      int32_t* clone_tokens = hypothesis_buffer_ + clone_offset;
+      float* clone_lps = hypothesis_logprobs_buffer_ + clone_offset;
+      for (int i = 0; i < sequence_length; i++) {
+        clone_tokens[i] = src_tokens[i];
+        clone_lps[i] = src_lps[i];
+      }
+      beam_hyp.Add(clone_tokens, sequence_length, clone_lps, final_score);
+    }
+  }
+
+  auto batch_output = output + batch_index * state.num_return_sequences_ * state.max_length_;
+
+  beam_hyp.Output(
+      state.num_return_sequences_,
+      state.max_length_,
+      state.pad_token_id_,
+      batch_output,
+      sequence_scores ? sequence_scores + batch_index * state.num_return_sequences_ : nullptr);
+}
+
+template <typename T>
+void LaunchBeamSearchScorer_FinalizeWithLogprobs(int batch_size,
+                                                 BeamScorerState& state,
+                                                 gsl::span<const int32_t> sequences,
+                                                 int sequence_length,
+                                                 gsl::span<BeamHypotheses> beam_hyps,
+                                                 gsl::span<const float> final_beam_scores,
+                                                 gsl::span<const float> logprobs_history_in,
+                                                 gsl::span<float> hypothesis_logprobs_buffer_,
+                                                 gsl::span<int32_t> hypothesis_buffer_,
+                                                 gsl::span<int32_t> output,
+                                                 gsl::span<T> sequence_scores,
+                                                 cudaStream_t stream) {
+  BeamSearchScorer_FinalizeWithLogprobs<<<1, batch_size, 0, stream>>>(
+      state,
+      sequences.data(),
+      sequence_length,
+      beam_hyps.data(),
+      final_beam_scores.data(),
+      logprobs_history_in.data(),
+      hypothesis_logprobs_buffer_.data(),
+      hypothesis_buffer_.data(),
+      output.data(),
+      sequence_scores.data());
+}
+
+template void LaunchBeamSearchScorer_FinalizeWithLogprobs<float>(
+    int, BeamScorerState&, gsl::span<const int32_t>, int,
+    gsl::span<BeamHypotheses>, gsl::span<const float>, gsl::span<const float>,
+    gsl::span<float>, gsl::span<int32_t>, gsl::span<int32_t>, gsl::span<float>, cudaStream_t);
+
+template void LaunchBeamSearchScorer_FinalizeWithLogprobs<__half>(
+    int, BeamScorerState&, gsl::span<const int32_t>, int,
+    gsl::span<BeamHypotheses>, gsl::span<const float>, gsl::span<const float>,
+    gsl::span<float>, gsl::span<int32_t>, gsl::span<int32_t>, gsl::span<__half>, cudaStream_t);
+
+__global__ void BeamSearchScorer_OutputLogprobs(BeamScorerState& state,
+                                                BeamHypotheses* beam_hyps_,
+                                                float* output_chosen_logprobs) {
+  int batch_index = blockIdx.x * blockDim.x + threadIdx.x;
+  if (batch_index >= state.batch_size_)
+    return;
+
+  cuda::BeamHypotheses& beam_hyp = beam_hyps_[batch_index];
+  float* batch_output = output_chosen_logprobs +
+                        batch_index * state.num_return_sequences_ * state.max_length_;
+
+  for (int index = 0; index < state.num_return_sequences_; index++) {
+    auto& item = beam_hyp.beams_[index];
+    if (item.logprobs == nullptr)
+      continue;
+    float* lp_target = batch_output + index * state.max_length_;
+    for (int i = 0; i < item.hypothesis_length; i++)
+      lp_target[i] = item.logprobs[i];
+  }
+}
+
+void LaunchBeamSearchScorer_OutputLogprobs(int batch_size,
+                                           BeamScorerState& state,
+                                           gsl::span<BeamHypotheses> beam_hyps,
+                                           gsl::span<float> output_chosen_logprobs,
+                                           cudaStream_t stream) {
+  BeamSearchScorer_OutputLogprobs<<<1, batch_size, 0, stream>>>(state,
+                                                                beam_hyps.data(),
+                                                                output_chosen_logprobs.data());
+}
+
+__global__ void ComputeNextTokenLogprobsKernel(const float* next_scores,
+                                               const int32_t* next_indices,
+                                               const float* beam_scores,
+                                               int num_beams,
+                                               int top_k,
+                                               int total,
+                                               float* next_token_logprobs) {
+  int i = blockIdx.x * blockDim.x + threadIdx.x;
+  if (i >= total) return;
+  int batch = i / top_k;
+  int parent = next_indices[i];
+  int parent_idx = batch * num_beams + parent;
+  next_token_logprobs[i] = next_scores[i] - beam_scores[parent_idx];
+}
+
+void LaunchComputeNextTokenLogprobs(const float* next_scores,
+                                    const int32_t* next_indices,
+                                    const float* beam_scores,
+                                    int batch_size,
+                                    int num_beams,
+                                    float* next_token_logprobs,
+                                    cudaStream_t stream) {
+  int top_k = 2 * num_beams;
+  int total = batch_size * top_k;
+  if (total <= 0) return;
+  constexpr int kBlock = 128;
+  int grid = (total + kBlock - 1) / kBlock;
+  ComputeNextTokenLogprobsKernel<<<grid, kBlock, 0, stream>>>(next_scores,
+                                                              next_indices,
+                                                              beam_scores,
+                                                              num_beams,
+                                                              top_k,
+                                                              total,
+                                                              next_token_logprobs);
+}
 
 template <typename T>
 __global__ void FloatConvertAndCopyKernel(const float* src, T* dst, size_t total_elements) {
