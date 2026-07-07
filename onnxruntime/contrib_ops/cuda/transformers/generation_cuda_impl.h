@@ -67,6 +67,7 @@ void LaunchLogitsProcessKernel(
 
 struct HypothesisScore {
   const int32_t* hypothesis;
+  const float* logprobs;  // Per-token log-probabilities aligned with `hypothesis`. nullptr if not tracked.
   int hypothesis_length;
   float score;
 };
@@ -81,6 +82,12 @@ struct BeamHypotheses {
   // Add a new hypothesis
   __device__ void Add(const int32_t* hypothesis, int hypothesis_length, float sum_logprobs);
 
+  // Add a new hypothesis together with its per-token log-probabilities (length = hypothesis_length).
+  __device__ void Add(const int32_t* hypothesis,
+                      int hypothesis_length,
+                      const float* logprobs,
+                      float sum_logprobs);
+
   // Return true if this beats the worst score in the hypothesis
   __device__ bool CanImprove(float best_sum_logprobs, int current_length) const;
 
@@ -91,6 +98,17 @@ struct BeamHypotheses {
                          int pad_token_id,      // pad token
                          int32_t* sequences,    // buffer with pad token, shape (num_return_sequences, max_length)
                          T* sequences_scores);  // buffer for sequence scores, with shape (num_return_sequences)
+
+  // Output results including per-token log-probabilities. `logprobs_out` has shape
+  // (top_k, max_length) and must be pre-zeroed by the caller (pad/unused positions stay zero).
+  // If a beam's stored logprobs pointer is null, that row is left as zero.
+  template <typename T>
+  __device__ void Output(int top_k,
+                         int max_length,
+                         int pad_token_id,
+                         int32_t* sequences,
+                         T* sequences_scores,
+                         float* logprobs_out);
 };
 
 struct BeamScorerState {
@@ -141,6 +159,81 @@ void LaunchBeamSearchScorer_Finalize(int batch_size,
                                      gsl::span<int32_t> output,
                                      gsl::span<T> sequence_scores,
                                      cudaStream_t stream);
+
+// Logprob-aware variant of LaunchBeamSearchScorer_Process. In addition to the standard work,
+// it records per-token log-probabilities for surviving beams into `next_beam_token_logprobs`
+// and, on EOS, clones the parent beam's logprob history slice into `hypothesis_logprobs_buffer`
+// (parallel to `hypothesis_buffer`) and stores that pointer on the new HypothesisScore.
+void LaunchBeamSearchScorer_ProcessWithLogprobs(BeamScorerState& state_cpu,
+                                                BeamScorerState& state,
+                                                gsl::span<const int32_t> sequences,
+                                                int sequence_length,
+                                                gsl::span<BeamHypotheses> beam_hyps_,
+                                                gsl::span<float> next_beam_scores_,
+                                                gsl::span<int32_t> next_beam_tokens_,
+                                                gsl::span<int32_t> next_beam_indices_,
+                                                gsl::span<float> next_beam_token_logprobs_,
+                                                gsl::span<int32_t> hypothesis_buffer_,
+                                                gsl::span<float> hypothesis_logprobs_buffer_,
+                                                gsl::span<const float> logprobs_history_in,
+                                                gsl::span<const float> next_scores,
+                                                gsl::span<const int32_t> next_tokens,
+                                                gsl::span<const int32_t> next_indices,
+                                                gsl::span<const float> next_token_logprobs,
+                                                cudaStream_t stream);
+
+// Mirrors `LaunchBeamSearchScorer_AppendNextTokenToSequences` but operates on the rotating
+// logprob history buffer instead of the token sequence buffer. Copies the parent beam's
+// `sequence_length` floats and appends `next_beam_token_logprobs[i]` at position `sequence_length`.
+void LaunchAppendLogprobsToHistory(BeamScorerState& state_cpu,
+                                   BeamScorerState& state,
+                                   gsl::span<const float> logprobs_history_in,
+                                   gsl::span<float> logprobs_history_out,
+                                   int sequence_length,
+                                   gsl::span<const float> next_beam_token_logprobs,
+                                   gsl::span<const int32_t> next_beam_indices,
+                                   cudaStream_t stream);
+
+// Logprob-aware variant of LaunchBeamSearchScorer_Finalize. For batches not yet done, when
+// flushing remaining beams it also clones each beam's current logprob history slice into
+// `hypothesis_logprobs_buffer_` (and re-clones the tokens into `hypothesis_buffer_` so the
+// Output() pointers stay aligned), then stores both pointers on the new HypothesisScore.
+// Writes the top-k token sequences + scores to `output` / `sequence_scores`.
+template <typename T>
+void LaunchBeamSearchScorer_FinalizeWithLogprobs(int batch_size,
+                                                 BeamScorerState& state,
+                                                 gsl::span<const int32_t> sequences,
+                                                 int sequence_length,
+                                                 gsl::span<BeamHypotheses> beam_hyps_,
+                                                 gsl::span<const float> final_beam_scores,
+                                                 gsl::span<const float> logprobs_history_in,
+                                                 gsl::span<float> hypothesis_logprobs_buffer_,
+                                                 gsl::span<int32_t> hypothesis_buffer_,
+                                                 gsl::span<int32_t> output,
+                                                 gsl::span<T> sequence_scores,
+                                                 cudaStream_t stream);
+
+// Reads the finalized `beam_hyps_` (after Finalize-with-logprobs has populated their logprob
+// pointers) and writes per-token logprobs of the top `num_return_sequences_` beams into
+// `output_chosen_logprobs` (shape batch_size x num_return_sequences x max_length).
+// Caller must zero `output_chosen_logprobs` before invoking.
+void LaunchBeamSearchScorer_OutputLogprobs(int batch_size,
+                                           BeamScorerState& state,
+                                           gsl::span<BeamHypotheses> beam_hyps_,
+                                           gsl::span<float> output_chosen_logprobs,
+                                           cudaStream_t stream);
+
+// Computes per-candidate-token log-probabilities into `next_token_logprobs` (size
+// batch_size * 2 * num_beams). For each candidate i in batch b:
+//   next_token_logprobs[i] = next_scores[i] - beam_scores[b * num_beams + next_indices[i]].
+// All buffers must be device pointers.
+void LaunchComputeNextTokenLogprobs(const float* next_scores,
+                                    const int32_t* next_indices,
+                                    const float* beam_scores,
+                                    int batch_size,
+                                    int num_beams,
+                                    float* next_token_logprobs,
+                                    cudaStream_t stream);
 
 template <typename T>
 void LaunchBeamSearchScoreCopy(gsl::span<const float> final_scores,

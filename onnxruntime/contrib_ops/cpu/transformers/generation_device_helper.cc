@@ -422,6 +422,24 @@ Status ProcessLogits(const OrtValue& logits,                                 // 
   gsl::span<const int32_t> next_tokens(beam_state->next_tokens.data(), beam_state->next_tokens.size());
   gsl::span<const int32_t> next_indices(beam_state->next_indices.data(), beam_state->next_indices.size());
 
+  // Recover per-token (incremental) log-probability of every candidate token in the top-k:
+  //   lp[i] = next_scores[i] - beam_scores[batch * num_beams + next_indices[i]]
+  // where `next_scores` is the cumulative score (parent_beam_score + log_softmax(token)).
+  // Used to populate the optional `chosen_token_logprobs` output.
+  std::vector<float> next_token_logprobs(next_scores.size());
+  {
+    const size_t topk_size = static_cast<size_t>(top_k);
+    for (size_t b = 0; b < static_cast<size_t>(batch_size); b++) {
+      for (size_t j = 0; j < topk_size; j++) {
+        const size_t i = b * topk_size + j;
+        const int32_t parent = next_indices[i];
+        const size_t parent_idx = b * static_cast<size_t>(num_beams) + static_cast<size_t>(parent);
+        next_token_logprobs[i] = static_cast<float>(next_scores[i]) - beam_state->beam_scores[parent_idx];
+      }
+    }
+  }
+  gsl::span<const float> next_token_logprobs_span(next_token_logprobs.data(), next_token_logprobs.size());
+
 #ifdef DEBUG_GENERATION
   dumper->Print("next_scores before scorer", next_scores.data(), batch_size, top_k);
   dumper->Print("next_tokens before scorer", next_tokens.data(), batch_size, top_k);
@@ -432,7 +450,8 @@ Status ProcessLogits(const OrtValue& logits,                                 // 
       *sequences,
       next_scores,
       next_tokens,
-      next_indices);
+      next_indices,
+      next_token_logprobs_span);
 
   return Status::OK();
 }
